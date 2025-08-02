@@ -10,7 +10,6 @@ import pandas as pd
 from collections import deque
 from sklearn.metrics import r2_score
 
-
 class QuantileRegressionTree:
     """
     A unified quantile regression tree implementation supporting two splitting criteria.

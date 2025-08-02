@@ -10,4 +10,7 @@ wheels/
 .venv
 
 # JetBrain
-,idea
+.idea
+
+# System files
+.DS_Store

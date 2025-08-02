@@ -7,7 +7,6 @@ and quantile predictions using various metrics.
 
 import numpy as np
 
-
 def reliability_score(y, lower, upper):
     """
     Calculate the reliability score (coverage probability) of prediction intervals.
