@@ -55,8 +55,8 @@ class QuantileRegressionTree:
         self.quantile = None
 
         # Validate parameters
-        if split_criterion not in ['r2', 'loss']:
-            raise ValueError("split_criterion must be 'r2' or 'loss'")
+        if split_criterion not in ['r2', 'loss', 'mse']:
+            raise ValueError("split_criterion must be 'r2', 'loss', or 'mse'")
 
     def _r2_split_evaluation(self, groups, quantile):
         """
@@ -138,6 +138,12 @@ class QuantileRegressionTree:
         float
             Split quality score according to the chosen criterion.
         """
+        if self.split_criterion == 'mse':
+            total = 0.0
+            for group in groups:
+                vals = np.array([row[-1] for row in group], dtype=float)
+                total += vals.var() * len(vals)
+            return total
         if self.split_criterion == 'r2':
             return self._r2_split_evaluation(groups, quantile)
         elif self.split_criterion == 'loss':

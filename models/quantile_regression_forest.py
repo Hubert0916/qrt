@@ -5,7 +5,7 @@ from models.quantile_regression_tree import QuantileRegressionTree
 class QuantileRegressionForest:
     """
     Quantile Regression Forest wrapper，
-    利用已存在的 QuantileRegressionTree (不改動其程式)，
+    利用已存在的 QuantileRegressionTree，
     透過將同一訓練集丟給每棵樹，並記錄每棵樹每個葉節點對應的 y 分布，
     來做 conditional quantile estimate。
     """
@@ -79,35 +79,29 @@ class QuantileRegressionForest:
         self.leaf_values = []
         rng = np.random.default_rng(self.random_state)
         
-        # 統一處理輸入格式，確保 feature_names 一致性
         if hasattr(X, 'shape'):
             n = X.shape[0]
         else:
             n = len(X)
             
-        # 確保 feature_names 一致性
         if hasattr(X, 'columns'):
             # pandas DataFrame
             feature_names = list(X.columns)
-            X = X.values  # 轉換為 numpy array 以確保索引一致性
+            X = X.values  
         else:
-            # numpy array 或其他格式
             X = np.array(X)
             feature_names = [f"feature_{i}" for i in range(X.shape[1])]
         
-        y = np.array(y)  # 確保 y 也是 numpy array
+        y = np.array(y)  
         
-        # 計算 fallback quantile，用於預測時的錯誤處理
         self._fallback_quantile = np.quantile(y, self.quantile)
 
         for i in range(self.n_estimators):
-            # bagging
             idx = rng.choice(n, size=n, replace=self.bootstrap)
             Xs, ys = X[idx], y[idx]
 
-            # fit 一棵樹 (quantile 參數留給底層，但我們只用它的結構)
             tree = QuantileRegressionTree(
-                split_criterion='mse',
+                split_criterion='r2',
                 max_depth=self.max_depth,
                 min_size=self.min_size,
                 random_state=(None if self.random_state is None else self.random_state + i)
@@ -115,7 +109,6 @@ class QuantileRegressionForest:
             tree.fit(Xs, ys, quantile=self.quantile, feature_names=feature_names)
             self.trees.append(tree)
 
-            # 把訓練資料各自分配到葉節點，收集 y
             leaf_ids = self._apply_tree(tree, Xs)
             mapping = defaultdict(list)
             for leaf_id, yi in zip(leaf_ids, ys):
@@ -130,7 +123,7 @@ class QuantileRegressionForest:
         - 依序丟進每棵樹，找出它對應的 leaf_id
         - 從 pre-computed leaf_values 拿出所有 y，再 aggregated 去算 α 分位數
         """
-        # 統一處理輸入格式
+        # 輸入格式
         if hasattr(X, 'values'):
             # pandas DataFrame
             X_arr = X.values
