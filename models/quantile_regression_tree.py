@@ -42,11 +42,13 @@ class QuantileRegressionTree:
         The quantile level used for training.
     """
 
-    def __init__(self, split_criterion='loss', max_depth=5, min_size=1, random_state=None):
+    def __init__(self, split_criterion='loss', max_depth=5, min_size=1, random_state=None, random_features=False):
         self.split_criterion = split_criterion
         self.max_depth = max_depth
         self.min_size = min_size
         self.random_state = random_state
+        self.random_features = random_features  
+
 
         # Tree structure (populated after training)
         self.tree_nodes = None
@@ -141,13 +143,16 @@ class QuantileRegressionTree:
         if self.split_criterion == 'mse':
             total = 0.0
             for group in groups:
+                if not group:
+                    continue
                 vals = np.array([row[-1] for row in group], dtype=float)
                 total += vals.var() * len(vals)
             return total
-        if self.split_criterion == 'r2':
+        elif self.split_criterion == 'r2':
             return self._r2_split_evaluation(groups, quantile)
         elif self.split_criterion == 'loss':
             return self._quantile_loss_evaluation(groups, quantile)
+        
 
     def _split_numeric(self, feature_idx, dataset, quantile):
         """
@@ -216,23 +221,28 @@ class QuantileRegressionTree:
         if self.split_criterion == 'r2':
             best_score = -float('inf')
             is_better = lambda new, best: new > best
-        else:  # loss
+        elif self.split_criterion in ['loss', 'mse']:
             best_score = float('inf')
             is_better = lambda new, best: new < best
+        else:
+            raise ValueError(f"Unknown split_criterion {self.split_criterion}")
 
         best_feat = None
         best_groups = None
         best_threshold = None
 
         n_features = len(dataset[0]) - 1
-        for feature_idx in range(n_features):
-            threshold, groups = self._split_numeric(feature_idx, dataset, quantile)
+        if self.random_features:
+            mtry = max(1, int(np.sqrt(n_features)))
+            feature_indices = np.random.choice(n_features, mtry, replace=False)
+        else:
+            feature_indices = range(n_features)
 
+        for feature_idx in feature_indices:
+            threshold, groups = self._split_numeric(feature_idx, dataset, quantile)
             if groups is None:
                 continue
-
             current_score = self._evaluate_split(list(groups.values()), quantile)
-
             if is_better(current_score, best_score):
                 best_score = current_score
                 best_feat = feature_idx
