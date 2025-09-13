@@ -13,13 +13,13 @@ class QuantileRegressionForest:
                  n_estimators=100,
                  quantile=0.5,
                  max_depth=5,
-                 min_size=1,
+                 min_samples_leaf=1,
                  bootstrap=True,
                  random_state=None):
         self.n_estimators = n_estimators
         self.quantile    = quantile
         self.max_depth   = max_depth
-        self.min_size    = min_size
+        self.min_samples_leaf    = min_samples_leaf
         self.bootstrap   = bootstrap
         self.random_state= random_state
 
@@ -107,7 +107,7 @@ class QuantileRegressionForest:
             tree = QuantileRegressionTree(
                 split_criterion='r2',    # 使用 R² 評估分割品質
                 max_depth=self.max_depth,  # 樹的最大深度限制
-                min_size=self.min_size,    # 葉節點最小樣本數
+                min_samples_leaf=self.min_samples_leaf,    # 葉節點最小樣本數
                 # 確保每棵樹有不同的隨機種子以增加多樣性
                 random_state=(None if self.random_state is None else self.random_state + i)
             )

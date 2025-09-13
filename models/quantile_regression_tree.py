@@ -25,7 +25,7 @@ class QuantileRegressionTree:
         - 'loss': Minimize quantile loss (pinball loss)
     max_depth : int, default=5
         The maximum depth of the tree.
-    min_size : int, default=1
+    min_samples_leaf : int, default=1
         The minimum number of samples required at a leaf node.
     random_state : int, optional
         Random seed for reproducibility.
@@ -42,10 +42,10 @@ class QuantileRegressionTree:
         The quantile level used for training.
     """
 
-    def __init__(self, split_criterion='loss', max_depth=5, min_size=1, random_state=None, random_features=False):
+    def __init__(self, split_criterion='loss', max_depth=5, min_samples_leaf=1, feature_names=None, random_state=None, random_features=False):
         self.split_criterion = split_criterion
         self.max_depth = max_depth
-        self.min_size = min_size
+        self.min_samples_leaf = min_samples_leaf
         self.random_state = random_state
         self.random_features = random_features  
 
@@ -53,7 +53,7 @@ class QuantileRegressionTree:
         # Tree structure (populated after training)
         self.tree_nodes = None
         self.children_map = None
-        self.feature_names = None
+        self.feature_names = feature_names
         self.quantile = None
 
         # Validate parameters
@@ -344,7 +344,7 @@ class QuantileRegressionTree:
 
             # Process child nodes
             for condition, group in groups.items():
-                if len(group) <= self.min_size:
+                if len(group) <= self.min_samples_leaf:
                     # Create leaf node directly
                     pred = self._terminal_value(group, quantile)
                     tree_data.append([
@@ -396,7 +396,7 @@ class QuantileRegressionTree:
 
         return tree_nodes, children_map
 
-    def fit(self, X, y, quantile, feature_names=None):
+    def fit(self, X, y, quantile):
         """
         Fit the quantile regression tree to training data.
 
@@ -420,6 +420,8 @@ class QuantileRegressionTree:
         if self.random_state is not None:
             np.random.seed(self.random_state)
 
+        feature_names = self.feature_names
+        
         # Validate inputs
         if not 0 < quantile < 1:
             raise ValueError("quantile must be between 0 and 1")
@@ -566,14 +568,14 @@ class QuantileRegressionTree:
         lower_tree = QuantileRegressionTree(
             split_criterion=self.split_criterion,
             max_depth=self.max_depth,
-            min_size=self.min_size,
+            min_samples_leaf=self.min_samples_leaf,
             random_state=self.random_state
         )
 
         upper_tree = QuantileRegressionTree(
             split_criterion=self.split_criterion,
             max_depth=self.max_depth,
-            min_size=self.min_size,
+            min_samples_leaf=self.min_samples_leaf,
             random_state=self.random_state
         )
 
@@ -610,7 +612,7 @@ class QuantileRegressionTree:
 
 
 def predict_quantile_interval(X_train, y_train, X_test, lower_quantile, upper_quantile,
-                             split_criterion='loss', max_depth=5, min_size=1,
+                             split_criterion='loss', max_depth=5, min_samples_leaf=1,
                              feature_names=None, random_state=None):
     """
     Convenience function for quantile interval prediction.
@@ -634,7 +636,7 @@ def predict_quantile_interval(X_train, y_train, X_test, lower_quantile, upper_qu
         Splitting criterion for the trees.
     max_depth : int, default=5
         Maximum depth of the trees.
-    min_size : int, default=1
+    min_samples_leaf : int, default=1
         Minimum samples per leaf node.
     feature_names : list, optional
         Names of the features.
@@ -650,7 +652,7 @@ def predict_quantile_interval(X_train, y_train, X_test, lower_quantile, upper_qu
     lower_tree = QuantileRegressionTree(
         split_criterion=split_criterion,
         max_depth=max_depth,
-        min_size=min_size,
+        min_samples_leaf=min_samples_leaf,
         random_state=random_state
     )
     lower_tree.fit(X_train, y_train, lower_quantile, feature_names)
@@ -659,7 +661,7 @@ def predict_quantile_interval(X_train, y_train, X_test, lower_quantile, upper_qu
     upper_tree = QuantileRegressionTree(
         split_criterion=split_criterion,
         max_depth=max_depth,
-        min_size=min_size,
+        min_samples_leaf=min_samples_leaf,
         random_state=random_state
     )
     upper_tree.fit(X_train, y_train, upper_quantile, feature_names)
