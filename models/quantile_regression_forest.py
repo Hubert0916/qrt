@@ -1,242 +1,298 @@
-import numpy as np
+# models/quantile_regression_forest.py
+"""
+Quantile Regression Forest
+"""
+
+from typing import Dict, List, Optional, Union
 from collections import defaultdict
-from models.quantile_regression_tree import QuantileRegressionTree
+
+import numpy as np
+import pandas as pd
+
+from .quantile_regression_tree import QuantileRegressionTree
+
 
 class QuantileRegressionForest:
     """
-    Quantile Regression Forest wrapper，
-    利用已存在的 QuantileRegressionTree，
-    透過將同一訓練集丟給每棵樹，並記錄每棵樹每個葉節點對應的 y 分布，
-    來做 conditional quantile estimate。
+    Ensemble of QuantileRegressionTree with per-leaf sample aggregation.
+
+    Parameters
+    ----------
+    n_estimators : int, default=100
+        Number of trees in the forest.
+    quantile : float, default=0.5
+        Target quantile to predict (0 < q < 1).
+    split_criterion : {'loss', 'mse', 'r2'}, default='loss'
+        Split objective passed to each tree.
+    max_depth : int, default=5
+        Maximum depth per tree.
+    min_samples_leaf : int, default=1
+        Minimum number of samples required in each leaf.
+    bootstrap : bool, default=True
+        If True, sample with replacement per tree (bagging).
+    max_features : {int, 'sqrt', 'log2', None}, default='sqrt'
+        Number of features to consider per tree. If None, use all features.
+    max_threshold_candidates : int, default=128
+        Cap on thresholds evaluated per feature (efficiency/quality trade-off).
+    random_thresholds : bool, default=False
+        If True, subsample thresholds randomly; else select deterministically.
+    include_oob : bool, default=True
+        If True and bootstrap=True, enrich leaf sample bags with OOB samples.
+    min_leaf_agg : int, default=8
+        Minimum total samples required across leaves when aggregating a
+        prediction; otherwise use global fallback quantile.
+    random_state : int, optional
+        Base RNG seed; each tree is offset by its index for reproducibility.
     """
-    def __init__(self,
-                 n_estimators=100,
-                 quantile=0.5,
-                 max_depth=5,
-                 min_samples_leaf=1,
-                 bootstrap=True,
-                 random_state=None):
+
+    def __init__(
+        self,
+        n_estimators: int = 100,
+        quantile: float = 0.5,
+        split_criterion: str = "loss",
+        max_depth: int = 5,
+        min_samples_leaf: int = 1,
+        bootstrap: bool = True,
+        max_features: Union[int, str, None] = "sqrt",
+        max_threshold_candidates: int = 128,
+        random_thresholds: bool = False,
+        include_oob: bool = True,
+        min_leaf_agg: int = 8,
+        random_state: Optional[int] = None,
+    ):
         self.n_estimators = n_estimators
-        self.quantile    = quantile
-        self.max_depth   = max_depth
-        self.min_samples_leaf    = min_samples_leaf
-        self.bootstrap   = bootstrap
-        self.random_state= random_state
+        self.quantile = quantile
+        self.split_criterion = split_criterion
+        self.max_depth = max_depth
+        self.min_samples_leaf = min_samples_leaf
+        self.bootstrap = bootstrap
+        self.max_features = max_features
+        self.max_threshold_candidates = max_threshold_candidates
+        self.random_thresholds = random_thresholds
+        self.include_oob = include_oob
+        self.min_leaf_agg = min_leaf_agg
+        self.random_state = random_state
 
-        self.trees       = []   # 存放 QuantileRegressionTree instance
-        self.leaf_values = []   # 對應每棵樹：leaf_id -> [y1, y2, …] 映射
+        # Learned state.
+        self.trees_: List[QuantileRegressionTree] = []
+        # For each tree, a mapping: leaf_id -> list of y values (in-bag + OOB).
+        self.leaf_values_: List[Dict[int, List[float]]] = []
+        # Global fallback quantile used if per-sample aggregation is too small.
+        self._fallback_quantile: Optional[float] = None
+        # Feature names for external arrays.
+        self.feature_names_: List[str] = []
+        # RNG for bootstrapping and feature subspace selection.
+        self._rng = np.random.default_rng(random_state)
 
-    def _apply_tree(self, tree, X):
-        """
-        根據 tree.tree_nodes 和 tree.children_map，
-        模仿 apply()：把每筆 X 對應到葉節點的 node_id。
-        """
-        node_ids = []
-        for x in X:
-            node_id = 0
-            # 走到葉節節點為止
-            while node_id in tree.children_map:
-                found_child = False
-                for child in tree.children_map[node_id]:
-                    feat = child['feature_name']
-                    try:
-                        idx = tree.feature_names.index(feat)
-                    except ValueError:
-                        # 如果特徵名稱不存在，跳過這個子節點
-                        continue
-                    
-                    try:
-                        val = float(x[idx])
-                    except (ValueError, IndexError):
-                        # 如果無法轉換或索引超出範圍，跳過
-                        continue
-                    
-                    if child['condition'] == '<' and val < child['numeric_threshold']:
-                        node_id = child['node_id']
-                        found_child = True
-                        break
-                    elif child['condition'] == '>=' and val >= child['numeric_threshold']:
-                        node_id = child['node_id']
-                        found_child = True
-                        break
-                
-                if not found_child:
-                    # 如果條件都不符合或發生錯誤，選擇第一個有效的子節點
-                    if tree.children_map[node_id]:
-                        node_id = tree.children_map[node_id][0]['node_id']
-                    else:
-                        # 如果沒有子節點，停止遍歷
-                        break
-            node_ids.append(node_id)
-        return node_ids
+    # --------------------------------------------------------------------- #
+    # Helpers
+    # --------------------------------------------------------------------- #
 
-    def fit(self, X, y):
+    def _select_feature_subset(self, feature_names: List[str]) -> List[str]:
         """
-        1. 建 n_estimators 棵 QuantileRegressionTree（用 paper 建議的切分）
-        2. 建立每棵樹的 leaf_id -> [y 值清單] 映射
+        Pick a feature subspace per tree based on `max_features`.
         """
-        self.trees = []
-        self.leaf_values = []
-        rng = np.random.default_rng(self.random_state)
-        
-        if hasattr(X, 'shape'):
-            n = X.shape[0]
+        n_features = len(feature_names)
+        if isinstance(self.max_features, int):
+            k = min(self.max_features, n_features)
+        elif self.max_features == "sqrt":
+            k = max(1, int(np.sqrt(n_features)))
+        elif self.max_features == "log2":
+            k = max(1, int(np.log2(n_features)))
         else:
-            n = len(X)
-            
-        if hasattr(X, 'columns'):
-            # pandas DataFrame
-            feature_names = list(X.columns)
-            X = X.values  
-        else:
-            X = np.array(X)
-            feature_names = [f"feature_{i}" for i in range(X.shape[1])]
-        
-        y = np.array(y)  
-        
-        self._fallback_quantile = np.quantile(y, self.quantile)
+            # Use all features when None or unrecognized value is given.
+            return feature_names
+        return self._rng.choice(feature_names, size=k, replace=False).tolist()
 
-        # 🌲 建立 n_estimators 棵量化回歸樹
+    def _get_leaf_node(self, tree: QuantileRegressionTree, x: np.ndarray) -> int:
+        """
+        Route a single sample to a leaf node ID using the stored split structure.
+
+        Notes
+        -----
+        This mirrors the tree's predict path but returns the terminal node ID
+        instead of a prediction. If a feature is missing or an inconsistency is
+        encountered, we break and return the last reachable node.
+        """
+        node_id = 0
+        while node_id in tree.children_map:
+            children = tree.children_map.get(node_id, [])
+            if not children:
+                break
+            feat = children[0]["feature_name"]
+            try:
+                fidx = self.feature_names_.index(feat)
+                v = float(x[fidx])
+            except (ValueError, IndexError):
+                # Missing feature or index mismatch; stop traversal gracefully.
+                break
+
+            nxt = None
+            for ch in children:
+                thr = ch["numeric_threshold"]
+                if ch["condition"] == "<" and v < thr:
+                    nxt = ch["node_id"]
+                    break
+                if ch["condition"] == ">=" and v >= thr:
+                    nxt = ch["node_id"]
+                    break
+
+            if nxt is None:
+                # No child condition matched; stop at current node.
+                break
+            node_id = nxt
+        return node_id
+
+    # --------------------------------------------------------------------- #
+    # Fit / Predict
+    # --------------------------------------------------------------------- #
+
+    def fit(
+        self,
+        X: Union[pd.DataFrame, np.ndarray],
+        y: Union[pd.Series, np.ndarray],
+    ):
+        """
+        Train the forest and cache per-leaf sample bags (with optional OOB).
+
+        Parameters
+        ----------
+        X : array-like or pandas.DataFrame, shape (n_samples, n_features)
+            Training features.
+        y : array-like or pandas.Series, shape (n_samples,)
+            Target variable.
+
+        Returns
+        -------
+        self : QuantileRegressionForest
+            Fitted estimator.
+        """
+        self.trees_.clear()
+        self.leaf_values_.clear()
+
+        if isinstance(X, pd.DataFrame):
+            self.feature_names_ = X.columns.tolist()
+            X_np = X.values
+        else:
+            X_np = np.asarray(X)
+            self.feature_names_ = [
+                f"feature_{i}" for i in range(X_np.shape[1])]
+        y_np = np.asarray(y)
+
+        n = X_np.shape[0]
+        self._fallback_quantile = float(np.quantile(y_np, self.quantile))
+
         for i in range(self.n_estimators):
-            # 🎲 Bootstrap 抽樣：從原始資料中有放回地抽取樣本
-            # 每棵樹使用不同的資料子集以增加多樣性
-            idx = rng.choice(n, size=n, replace=self.bootstrap)
-            Xs, ys = X[idx], y[idx]  # 第 i 棵樹的訓練資料
+            # Bootstrap sampling (bagging).
+            if self.bootstrap:
+                idx = self._rng.choice(n, size=n, replace=True)
+            else:
+                idx = np.arange(n)
+            X_bag, y_bag = X_np[idx], y_np[idx]
 
-            # 🌱 建立第 i 棵量化回歸樹
+            # Choose a feature subspace per tree.
+            feats = self._select_feature_subset(self.feature_names_)
+            f_idx = [self.feature_names_.index(f) for f in feats]
+
+            # Build the tree with lightweight configuration.
             tree = QuantileRegressionTree(
-                split_criterion='r2',    # 使用 R² 評估分割品質
-                max_depth=self.max_depth,  # 樹的最大深度限制
-                min_samples_leaf=self.min_samples_leaf,    # 葉節點最小樣本數
-                # 確保每棵樹有不同的隨機種子以增加多樣性
-                random_state=(None if self.random_state is None else self.random_state + i)
+                split_criterion=self.split_criterion,
+                max_depth=self.max_depth,
+                min_samples_leaf=self.min_samples_leaf,
+                feature_names=feats,
+                random_state=(
+                    self.random_state + i if self.random_state is not None else None
+                ),
+                random_features=True,  # Per-node random subspace inside tree.
+                random_thresholds=self.random_thresholds,
+                max_threshold_candidates=self.max_threshold_candidates,
             )
-            # 訓練樹，quantile 參數用於分割準則計算
-            tree.fit(Xs, ys, quantile=self.quantile, feature_names=feature_names)
-            self.trees.append(tree)  # 將訓練好的樹加入森林
+            tree.fit(X_bag[:, f_idx], y_bag, quantile=self.quantile)
+            self.trees_.append(tree)
 
-            # 📊 建立葉節點 ID 到 y 值的映射
-            # 這是 QRF 的核心：記錄每個葉節點包含的 y 值分布
-            leaf_ids = self._apply_tree(tree, Xs)  # 獲取每個訓練樣本對應的葉節點 ID
-            mapping = defaultdict(list)  # 建立映射：leaf_id -> [y 值列表]
-            
-            # 將每個 y 值分配到對應的葉節點
-            for leaf_id, yi in zip(leaf_ids, ys):
-                mapping[leaf_id].append(yi)  # 記錄該葉節點包含的 y 值
-            
-            # 儲存第 i 棵樹的葉節點映射，供預測時使用
-            self.leaf_values.append(mapping)
+            # Aggregate in-bag samples per leaf.
+            leaf_ids = np.array([self._get_leaf_node(tree, x) for x in X_bag])
+            mp = defaultdict(list)
+            for lid, yi in zip(leaf_ids, y_bag):
+                mp[lid].append(float(yi))
+
+            # Optional OOB enrichment: push unseen samples through this tree.
+            if self.include_oob and self.bootstrap:
+                oob_mask = np.ones(n, dtype=bool)
+                oob_mask[idx] = False
+                X_oob = X_np[oob_mask]
+                y_oob = y_np[oob_mask]
+                if X_oob.size:
+                    for x, yi in zip(X_oob, y_oob):
+                        lid = self._get_leaf_node(tree, x)
+                        mp[lid].append(float(yi))
+
+            # Freeze the mapping for this tree.
+            self.leaf_values_.append(dict(mp))
 
         return self
 
-    def predict_quantile(self, X, alpha):
+    def predict(
+        self,
+        X: Union[pd.DataFrame, np.ndarray],
+        quantile: Optional[float] = None,
+    ) -> np.ndarray:
         """
-        預測指定分位數 alpha 的值
-        
-        核心演算法：
-        1. 對每個測試樣本，將其通過所有樹找到對應的葉節點
-        2. 從每個葉節點收集訓練時的 y 值
-        3. 聚合所有 y 值後計算 alpha 分位數
-        
+        Predict the requested quantile by aggregating per-tree leaf samples.
+
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_features)
-            測試樣本特徵
-        alpha : float, range (0, 1)
-            目標分位數，例如 0.5 表示中位數
-            
+        X : array-like or pandas.DataFrame, shape (n_samples, n_features)
+            Samples to predict.
+        quantile : float, optional
+            If provided, overrides the forest's default quantile.
+
         Returns
         -------
-        predictions : ndarray, shape (n_samples,)
-            每個樣本的 alpha 分位數預測值
+        np.ndarray, shape (n_samples,)
+            Predicted quantiles.
         """
-        # 🔄 統一輸入格式：確保 X 是 numpy array
-        if hasattr(X, 'values'):
-            # pandas DataFrame → numpy array
-            X_arr = X.values
-        else:
-            X_arr = np.array(X)
-            
-        preds = []  # 儲存每個樣本的預測結果
-        
-        # 🎯 對每個測試樣本進行預測
-        for x in X_arr:
-            agg = []  # 聚合來自所有樹的 y 值
-            
-            # 🌳 遍歷森林中的每棵樹
-            for tree, mapping in zip(self.trees, self.leaf_values):
-                try:
-                    # 找到該樣本在此樹中對應的葉節點 ID
-                    leaf_id = self._apply_tree(tree, [x])[0]
-                    
-                    # 從預先計算的映射中取得該葉節點的 y 值列表
-                    leaf_values = mapping.get(leaf_id, [])
-                    
-                    # 將這些 y 值加入聚合列表
-                    agg.extend(leaf_values)
-                except (IndexError, KeyError, ValueError):
-                    # 如果某棵樹處理失敗（例如資料格式問題），跳過該樹
-                    # 這提供了容錯機制，即使部分樹失效也能繼續預測
-                    continue
-            
-            # 📊 計算聚合後的分位數
-            if len(agg) > 0:
-                # 有足夠資料時，計算 alpha 分位數
-                preds.append(np.quantile(agg, alpha))
+        if quantile is None:
+            quantile = self.quantile
+
+        X_np = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
+        preds: List[float] = []
+
+        for x in X_np:
+            bag: List[float] = []
+
+            # NOTE: We intentionally compute a leaf ID per tree for `x`, then
+            # read the cached sample bag for that leaf from `leaf_values_`.
+            # This keeps predict() memory-light while benefiting from OOB bags.
+            for tree, leaf_map in zip(self.trees_, self.leaf_values_):
+                lid = self._get_leaf_node(tree, x)
+                values = leaf_map.get(lid)
+                if values:
+                    bag.extend(values)
+
+            if len(bag) >= self.min_leaf_agg:
+                preds.append(
+                    float(np.quantile(np.asarray(bag, dtype=float), quantile)))
             else:
-                # 🚨 容錯機制：如果沒有有效資料，使用備用值
-                if hasattr(self, '_fallback_quantile'):
-                    # 使用訓練時計算的備用分位數
-                    preds.append(self._fallback_quantile)
-                else:
-                    # 最後的備用方案
-                    preds.append(0.0)
-                    
-        return np.array(preds)  # 返回 numpy array 格式的預測結果
+                # Fall back to global quantile if local bag is too small.
+                preds.append(self._fallback_quantile)
 
-    def predict(self, X):
+        return np.asarray(preds, dtype=float)
+
+    def predict_interval(
+        self,
+        X: Union[pd.DataFrame, np.ndarray],
+        lower_quantile: float = 0.1,
+        upper_quantile: float = 0.9,
+    ):
         """
-        便利方法：使用初始化時設定的預設分位數進行預測
-        
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            測試樣本特徵
-            
+        Predict a (lower, upper) interval by calling `predict` twice.
+
         Returns
         -------
-        predictions : ndarray, shape (n_samples,)
-            使用預設分位數的預測值
+        (lower, upper) : tuple of np.ndarray
+            Element-wise interval bounds.
         """
-        return self.predict_quantile(X, self.quantile)
-
-    def predict_interval(self, X, lower_q, upper_q):
-        """
-        便利方法：預測指定的預測區間
-        
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            測試樣本特徵
-        lower_q : float, range (0, 1)
-            區間下界分位數，例如 0.05 表示 5% 分位數
-        upper_q : float, range (0, 1)
-            區間上界分位數，例如 0.95 表示 95% 分位數
-            
-        Returns
-        -------
-        lower : ndarray, shape (n_samples,)
-            預測區間的下界值
-        upper : ndarray, shape (n_samples,)
-            預測區間的上界值
-            
-        Examples
-        --------
-        >>> # 預測 90% 預測區間 (5%-95%)
-        >>> lower, upper = qrf.predict_interval(X_test, 0.05, 0.95)
-        >>> # 預測 50% 預測區間 (25%-75%)
-        >>> lower, upper = qrf.predict_interval(X_test, 0.25, 0.75)
-        """
-        lower = self.predict_quantile(X, lower_q)  # 計算下界
-        upper = self.predict_quantile(X, upper_q)  # 計算上界
+        lower = self.predict(X, quantile=lower_quantile)
+        upper = self.predict(X, quantile=upper_quantile)
         return lower, upper
