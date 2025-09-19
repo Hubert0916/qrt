@@ -46,12 +46,15 @@ if __name__ == "__main__":
         test_data[f'pred_q{args.qh}'] = y_test_pred_h
         test_data[f'pred_q{args.ql}'] = y_test_pred_l
         test_data['return'] = 0
-
+        
+        # TO DO: Implement trading strategy based on quantile predictions
         for row in test_data.iterrows():
             if row[1][f'pred_q{args.qh}'] > 0 and row[1][f'pred_q{args.ql}'] > (row[1]['OPENPRC_1d']-row[1]['BIDLO_-4d'])/row[1]['BIDLO_-4d']:
                 test_data.at[row[0], 'return'] = row[1][f'pred_q{args.qh}']
             elif row[1][f'pred_q{args.ql}'] < 0 and row[1][f'pred_q{args.ql}'] < (row[1]['OPENPRC_1d']-row[1]['ASKHI_-4d'])/row[1]['ASKHI_-4d']:
                 test_data.at[row[0], 'return'] = -row[1][f'pred_q{args.ql}']
+
+
         test_data['total_return'] = test_data['return'].cumsum()
         print(test_data['total_return'])
         print(f"Cumulative return for this period: {test_data['total_return'].tail(1).values[0]}")
