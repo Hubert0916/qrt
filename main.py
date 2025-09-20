@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 
 from models.quantile_regression_forest import QuantileRegressionForest
 from models.quantile_regression_tree import QuantileRegressionTree
@@ -18,13 +19,13 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument("--train_period", type=int, default=5)
 parser.add_argument("--test_period", type=int, default=1)
-parser.add_argument("--max_depth", type=int, default=5)
-parser.add_argument("--min_samples_leaf", type=int, default=10)
+parser.add_argument("--max_depth", type=int, default=10)
+parser.add_argument("--min_samples_leaf", type=int, default=2)
 parser.add_argument("--qh", type=float, default=0.9)
 parser.add_argument("--ql", type=float, default=0.1)
 parser.add_argument("--data", type=str, default="data/esg_tfidf_with_return_cleaned.csv")
 parser.add_argument("--outdir", type=str, default="output/benchmark")
-parser.add_argument("--n_estimators", type=int, default=50)
+parser.add_argument("--n_estimators", type=int, default=10)
 parser.add_argument("--random_state", type=int, default=42)
 args = parser.parse_args()
 
@@ -232,7 +233,17 @@ def run_benchmark() -> None:
 
     # ------------------------------- Plots ------------------------------- #
 
-    # 1) Pinball loss bars (lower is better)
+    def add_bar_labels(ax, values, fmt="{:.4f}"):
+        """Add value labels on top of each bar."""
+        for rect, val in zip(ax.patches, values):
+            height = rect.get_height()
+            ax.annotate(fmt.format(val),
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),  # vertical offset
+                        textcoords="offset points",
+                        ha="center", va="bottom", fontsize=9)
+
+    # 1) Aggregate metrics
     agg = (
         metrics_df.groupby(["model", "criterion"])
         .agg(
@@ -244,65 +255,72 @@ def run_benchmark() -> None:
         )
         .reset_index()
     )
-
-    # Sort by combined pinball for nice ordering
     agg = agg.sort_values("pinball_sum", ascending=True)
 
-    # Helper labels
     labels = [f"{m}/{c}" for m, c in zip(agg["model"], agg["criterion"])]
     x = np.arange(len(labels))
 
-    # Plot: combined pinball loss
+    # --- 1) Pinball Loss (Sum) ---
     plt.figure(figsize=(12, 6))
-    plt.bar(x, agg["pinball_sum"])
-    plt.xticks(x, labels, rotation=30, ha="right")
-    plt.ylabel("Mean Pinball Loss (ql + qh)")
-    plt.title("Quantile Accuracy (lower is better)")
+    ax = plt.gca()
+    bars = ax.bar(x, agg["pinball_sum"])
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=30, ha="right")
+    ax.set_ylabel("Mean Pinball Loss (ql+qh)")
+    ax.set_title("Quantile Regression Accuracy (Pinball Loss)")
+    ax.set_ylim(agg["pinball_sum"].min() * 0.95, agg["pinball_sum"].max() * 1.05)
+    add_bar_labels(ax, agg["pinball_sum"])
     plt.tight_layout()
     plt.savefig(os.path.join(args.outdir, "01_pinball_sum_bar.png"), dpi=200)
     plt.close()
 
-    # Plot: coverage
+    # --- 2) Coverage ---
     plt.figure(figsize=(12, 6))
-    plt.bar(x, agg["coverage"])
-    plt.xticks(x, labels, rotation=30, ha="right")
-    plt.ylabel("Mean Coverage Rate")
-    plt.title(f"Interval Coverage between q{args.ql:.2f} and q{args.qh:.2f} (higher is better)")
+    ax = plt.gca()
+    bars = ax.bar(x, agg["coverage"])
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=30, ha="right")
+    ax.set_ylabel("Mean Coverage Rate")
+    ax.set_title(f"Interval Coverage between q{args.ql:.2f} and q{args.qh:.2f}")
+    ax.set_ylim(agg["coverage"].min() * 0.95, min(1.0, agg["coverage"].max() * 1.05))
+    add_bar_labels(ax, agg["coverage"], fmt="{:.3f}")
+    ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))  # optional: show as %
     plt.tight_layout()
     plt.savefig(os.path.join(args.outdir, "02_coverage_bar.png"), dpi=200)
     plt.close()
 
-    # Plot: cumulative return
+    # --- 3) Cumulative Return ---
     plt.figure(figsize=(12, 6))
-    plt.bar(x, agg["cum_return"])
-    plt.xticks(x, labels, rotation=30, ha="right")
-    plt.ylabel("Mean Final Cumulative Return")
-    plt.title("Trading Strategy Outcome (higher is better)")
+    ax = plt.gca()
+    bars = ax.bar(x, agg["cum_return"])
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=30, ha="right")
+    ax.set_ylabel("Mean Final Cumulative Return")
+    ax.set_title("Trading Strategy Performance (Cumulative Return)")
+    ax.set_ylim(agg["cum_return"].min() * 0.95, agg["cum_return"].max() * 1.05)
+    add_bar_labels(ax, agg["cum_return"], fmt="{:.2f}")
     plt.tight_layout()
     plt.savefig(os.path.join(args.outdir, "03_cum_return_bar.png"), dpi=200)
     plt.close()
 
-    # 2) Equity curve for the best config (by lowest pinball_sum)
+    # --- 4) Equity Curve for Best Config ---
     best_row = agg.iloc[0]
     best_key = (best_row["model"], best_row["criterion"])
     best_curves = pd.concat(equity_curves[best_key], ignore_index=True)
-
-    # Merge windows sequentially (sorted by date) for a single equity curve view.
     best_curves = best_curves.sort_values("日期").reset_index(drop=True)
     best_curves["merged_equity"] = best_curves["total_return"].cumsum()
 
     plt.figure(figsize=(12, 6))
     plt.plot(best_curves["日期"], best_curves["merged_equity"], linewidth=2)
-    plt.title(f"Equity Curve — Best Config: {best_key[0]}/{best_key[1]}")
+    plt.title(f"Equity Curve — Best Model ({best_key[0]}/{best_key[1]})")
     plt.xlabel("Date")
-    plt.ylabel("Cumulative Return (merged across windows)")
+    plt.ylabel("Cumulative Return")
     plt.grid(True, linewidth=0.3)
     plt.tight_layout()
     plt.savefig(os.path.join(args.outdir, "04_equity_best.png"), dpi=200)
     plt.close()
 
-    # 3) Per-window equity curves (optional, looks cool)
-    #    This overlays the equity curve of each window for the best config.
+    # --- 5) Per-window equity curves (optional overlay) ---
     plt.figure(figsize=(12, 6))
     for dfw in equity_curves[best_key]:
         plt.plot(dfw["日期"], dfw["total_return"], alpha=0.6)
@@ -319,6 +337,7 @@ def run_benchmark() -> None:
     print("Aggregated performance (mean across windows):")
     print(agg.to_string(index=False))
     print("Saved metrics.csv and plots to:", args.outdir)
+
 
 
 if __name__ == "__main__":
