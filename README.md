@@ -90,6 +90,9 @@ We choose splits that **maximize** $$R^2(S)$$.
 
 ## Experiment Design
 ### Hyperparameters
+TBD
+
+### Trading Stategy
 
 ### Rolling-Window Setup
 
