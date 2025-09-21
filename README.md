@@ -45,6 +45,12 @@ And, critically, it compares three split criteria used to grow trees:
 - MSE → minimize within-node SSE (classic CART),
 - $R^2$ → maximize $R^2$ (SSE reduction ratio).
 
+## Dataset
+TBD
+
+## Tree Optimization
+TBD
+
 ## Split Criteria
 
 ### 1. Pinball Loss
@@ -83,10 +89,7 @@ We choose splits that **maximize** $$R^2(S)$$.
 
 
 ## Experiment Design
-
-- **Data**: Firm-level ESG text features (TF-IDF) + market data.
-- **Target**: Daily return (`報酬率`).
-- **Features**: Columns ending with `_TFIDF`.
+### Hyperparameters
 
 ### Rolling-Window Setup
 
@@ -128,6 +131,6 @@ TBD
 
 ## Future Work
 
-TBD
+...Model Tree...
 
 
