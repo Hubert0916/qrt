@@ -20,12 +20,12 @@ parser = argparse.ArgumentParser(
 parser.add_argument("--train_period", type=int, default=5)
 parser.add_argument("--test_period", type=int, default=1)
 parser.add_argument("--max_depth", type=int, default=10)
-parser.add_argument("--min_samples_leaf", type=int, default=2)
-parser.add_argument("--qh", type=float, default=0.9)
-parser.add_argument("--ql", type=float, default=0.1)
+parser.add_argument("--min_samples_leaf", type=int, default=5)
+parser.add_argument("--qh", type=float, default=0.7)
+parser.add_argument("--ql", type=float, default=0.3)
 parser.add_argument("--data", type=str, default="data/esg_tfidf_with_return_cleaned.csv")
 parser.add_argument("--outdir", type=str, default="output/benchmark")
-parser.add_argument("--n_estimators", type=int, default=10)
+parser.add_argument("--n_estimators", type=int, default=100)
 parser.add_argument("--random_state", type=int, default=42)
 args = parser.parse_args()
 
@@ -49,16 +49,15 @@ def _valid_price(value) -> bool:
     except (TypeError, ValueError):
         return False
 
-
-def _simulate_long(row: pd.Series, entry_price: float, target_return: float) -> float:
+# return the percentage
+def _simulate_long(row: pd.Series, entry_price: float, previous_low: float, target_return: float) -> float:
     if target_return <= 0:
         return 0.0
 
-    target_price = max(entry_price * (1.0 + target_return), 1e-6)
-    stop_return = abs(target_return) / 10.0
-    stop_price = max(entry_price * (1.0 - stop_return), 1e-6)
+    target_price = max(previous_low * (1.0 + target_return), 1e-6)
+    stop_price = max(entry_price * 0.9, 1e-6)
 
-    for day in (1, 2, 3):
+    for day in (2, 3, 4):
         open_price = row.get(f"OPENPRC_{day}d")
         high_price = row.get(f"ASKHI_{day}d")
         low_price = row.get(f"BIDLO_{day}d")
@@ -76,7 +75,7 @@ def _simulate_long(row: pd.Series, entry_price: float, target_return: float) -> 
         if _valid_price(low_price) and float(low_price) <= stop_price:
             return stop_price / entry_price - 1.0
 
-        if day == 3 and _valid_price(close_price):
+        if day == 4 and _valid_price(close_price):
             return float(close_price) / entry_price - 1.0
 
     return 0.0
@@ -114,7 +113,7 @@ def _simulate_short(row: pd.Series, entry_price: float, target_return: float) ->
     return 0.0
 
 
-# Trading strategy based on quantile predictions and 3-day management rules
+# Trading strategy based on quantile predictions and 4-day management rules
 def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
     df = test_df.copy()
     df["return"] = 0.0
@@ -133,23 +132,17 @@ def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
 
         trade_return = 0.0
 
-        prev_lows = [row.get(f"BIDLO_{offset}d") for offset in (-1, -2, -3)]
-        prev_highs = [row.get(f"ASKHI_{offset}d") for offset in (-1, -2, -3)]
-
-        valid_lows = [float(x) for x in prev_lows if _valid_price(x)]
-        valid_highs = [float(x) for x in prev_highs if _valid_price(x)]
-
-        prev_window_low = min(valid_lows) if valid_lows else None
-        prev_window_high = max(valid_highs) if valid_highs else None
+        prev_low = row.get("BIDLO_-4d")
+        prev_high = row.get("ASKHI_-4d")
 
         long_gate = (
-            (entry_price - prev_window_low) / prev_window_low
-            if prev_window_low is not None else None
+            (entry_price - prev_low) / prev_low
+            if prev_low is not None else None
         )
 
         short_gate = (
-            (entry_price - prev_window_high) / prev_window_high
-            if prev_window_high is not None else None
+            (entry_price - prev_high) / prev_high
+            if prev_high is not None else None
         )
 
         if (
@@ -160,7 +153,7 @@ def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
             and long_gate > 0
             and long_gate <= float(upper_pred)
         ):
-            trade_return = _simulate_long(row, entry_price, float(upper_pred))
+            trade_return = _simulate_long(row, entry_price, prev_low, float(upper_pred))
 
         # Version A (strict): require the realized drop to reach 30% of the predicted lower bound magnitude.
         # cond_short_a = (
@@ -173,18 +166,17 @@ def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
         # )
 
         # Version B (lenient): trigger once the realized drop exceeds 30% of the predicted lower bound (still negative).
-        cond_short_b = (
-            lower_pred is not None
-            and not pd.isna(lower_pred)
-            and lower_pred < 0
-            and short_gate is not None
-            and short_gate < 0
-            and short_gate >= 0.3 * float(lower_pred)
-        )
+        # cond_short_b = (
+        #     lower_pred is not None
+        #     and not pd.isna(lower_pred)
+        #     and lower_pred < 0
+        #     and short_gate is not None
+        #     and short_gate < 0
+        #     and short_gate >= 0.3 * float(lower_pred)
+        # )
 
-        if cond_short_b:
-            trade_return = _simulate_short(row, entry_price, float(lower_pred))
-
+        # if cond_short_b:
+        #     trade_return = _simulate_short(row, entry_price, float(lower_pred))
         df.at[idx, "return"] = trade_return
 
     df["total_return"] = df["return"].cumsum()
@@ -249,9 +241,9 @@ def fit_predict_qrf(
     seed: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Train a QRF and predict both quantiles (ql, qh)."""
-    model = QuantileRegressionForest(
+    model_h = QuantileRegressionForest(
         n_estimators=n_estimators,
-        quantile=qh,  # default; we override when predicting ql
+        quantile=qh,
         split_criterion=criterion,
         max_depth=max_depth,
         min_samples_leaf=min_samples_leaf,
@@ -263,9 +255,26 @@ def fit_predict_qrf(
         min_leaf_agg=8,
         random_state=seed,
     )
-    model.fit(X_train, y_train)
-    y_pred_h = model.predict(X_test, quantile=qh)
-    y_pred_l = model.predict(X_test, quantile=ql)
+    model_h.fit(X_train, y_train)
+
+    model_l = QuantileRegressionForest(
+        n_estimators=n_estimators,
+        quantile=ql,
+        split_criterion=criterion,
+        max_depth=max_depth,
+        min_samples_leaf=min_samples_leaf,
+        bootstrap=True,
+        max_features="sqrt",
+        max_threshold_candidates=128,
+        random_thresholds=False,
+        include_oob=True,
+        min_leaf_agg=8,
+        random_state=seed,
+    )
+    model_l.fit(X_train, y_train)
+
+    y_pred_h = model_h.predict(X_test)
+    y_pred_l = model_l.predict(X_test)
     return y_pred_l, y_pred_h
 
 # --------------------------- Orchestration ---------------------------- #
@@ -389,6 +398,20 @@ def run_benchmark() -> None:
     add_bar_labels(ax, agg["pinball_sum"])
     plt.tight_layout()
     plt.savefig(os.path.join(args.outdir, "01_pinball_sum_bar.png"), dpi=200)
+    plt.close()
+
+    # --- 1.1) Pinball Loss for each window (optional) ---
+    plt.figure(figsize=(12, 6))
+    for (m, c), group in metrics_df.groupby(["model", "criterion"]):
+        plt.plot(group["window"], group["pinball_sum"], marker='o', label=f"{m}/{c}")
+    plt.xticks(range(1, n_windows + 1))
+    plt.xlabel("Rolling Window")
+    plt.ylabel("Pinball Loss (ql + qh)")
+    plt.title("Pinball Loss per Rolling Window")
+    plt.legend()
+    plt.grid(True, linewidth=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(args.outdir, "01-1_pinball_sum_per_window.png"), dpi=200)
     plt.close()
 
     # --- 2) Coverage ---
