@@ -443,41 +443,11 @@ def run_benchmark() -> None:
     plt.savefig(os.path.join(args.outdir, "03_cum_return_bar.png"), dpi=200)
     plt.close()
 
-    # --- 4) Equity Curve for Best Config ---
-    best_row = agg.iloc[0]
-    best_key = (best_row["model"], best_row["criterion"])
-    best_curves = pd.concat(equity_curves[best_key], ignore_index=True)
-    best_curves = best_curves.sort_values("日期").reset_index(drop=True)
-    best_curves["merged_equity"] = best_curves["total_return"].cumsum()
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(best_curves["日期"], best_curves["merged_equity"], linewidth=2)
-    plt.title(f"Equity Curve — Best Model ({best_key[0]}/{best_key[1]})")
-    plt.xlabel("Date")
-    plt.ylabel("Cumulative Return")
-    plt.grid(True, linewidth=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(args.outdir, "04_equity_best.png"), dpi=200)
-    plt.close()
-
-    # --- 5) Per-window equity curves (optional overlay) ---
-    plt.figure(figsize=(12, 6))
-    for dfw in equity_curves[best_key]:
-        plt.plot(dfw["日期"], dfw["total_return"], alpha=0.6)
-    plt.title(f"Per-Window Equity Curves — {best_key[0]}/{best_key[1]}")
-    plt.xlabel("Date")
-    plt.ylabel("Cumulative Return (per window)")
-    plt.grid(True, linewidth=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(args.outdir, "05_equity_best_per_window.png"), dpi=200)
-    plt.close()
-
     # Console summary
     print("\n================================")
     print("Aggregated performance (mean across windows):")
     print(agg.to_string(index=False))
     print("Saved metrics.csv and plots to:", args.outdir)
-
 
 
 if __name__ == "__main__":
