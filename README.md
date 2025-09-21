@@ -49,7 +49,25 @@ And, critically, it compares three split criteria used to grow trees:
 TBD
 
 ## Tree Optimization
-TBD
+- **Keep data as NumPy arrays + pass index views**
+  - Store `X`(feature matrix), `y`(target matrix) once; each node carries only an `indices` view (zero-copy).
+
+- **Single-pass threshold search per feature**
+  - Sort samples **once** by the candidate feature, then scan all split points on this
+    sorted array.
+  - Turns “rebuild mask for every threshold” into “sort once + scan”.
+
+- **Vectorized MSE using prefix sums**
+  - Precompute cumulative count/sum/sum-of-squares; each split’s SSE (left+right) is computed in **O(1)** with closed-form formulas.
+
+- **Cap candidate thresholds (K) with optional random subsampling**
+  - If a feature has many unique values, evaluate at most **K** cut points.
+  - Linear, predictable runtime with minimal accuracy loss (especially in forests).
+
+- **Optional random feature subspace (√d per node)**
+  - Evaluate splits on a subset of features (Random-Forest style).
+  - Faster training + more diverse trees → often better generalization.
+  
 
 ## Split Criteria
 
