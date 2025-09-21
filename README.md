@@ -3,21 +3,29 @@
 <p align="center">
   <img width="2400" height="1200" alt="01_pinball_sum_bar" src="https://github.com/user-attachments/assets/68af85d0-0162-4ab6-be7f-dc0bcc636024" />
 </p>
-
-
 <p align="center">
   <b>Figure 1.</b> <i>Quantile Regression Accuracy</i><br>
   <strong>Quantile regression forest consistently achieves the lowest pinball loss and effect of split criterion on QRF is minimal</strong>. 
-  This shows the advantage instability and generalization over single-tree models and results for <code>loss</code>, <code>mse</code>, and <code>r²</code> are nearly identical, highlighting the robustness of the ensemble approach.
+  This shows the advantage instability and generalization over single-tree models and results for <code>loss</code>, <code>mse</code>, and <code>r²</code> are nearly identical, highlighting the robustness of      the ensemble approach.
 </p>
 
-<img width="2400" height="1200" alt="03_cum_return_bar" src="https://github.com/user-attachments/assets/1437151e-d342-49fb-a071-dde318f84ac5" />
-
-
+<p align="center"> 
+  <img width="2400" height="1200" alt="02_coverage_bar" src="https://github.com/user-attachments/assets/8c57dc1f-642c-4230-8776-714d4ea0f57b" />
+</p>
 <p align="center">
-  <b>Figure 2.</b> <i>Cumulative return</i><br>
-  TBD
+  <b>Figure 2.</b> <i>Interval Coverage between quantile=0.3 and 0.7</i><br>
+  QRF shows consistently higher coverage (~35%) compared to QRT (30–34%), indicating better-calibrated prediction intervals. Split criterion has little impact on QRF performance.
 </p>
+
+<p align="center"> 
+  <img width="2400" height="1200" alt="03_cum_return_bar" src="https://github.com/user-attachments/assets/1437151e-d342-49fb-a071-dde318f84ac5" />
+</p>
+<p align="center">
+  <b>Figure 3.</b> <i>Mean Cumulative Return across Rolling Windows</i><br> 
+  QRT with <code>r²</code>-based splitting achieved the highest trading performance, nearly doubling the cumulative return compared to all other configurations. QRF variants showed stable but lower returns.
+</p>
+
+
 
 ## Motivation
 
