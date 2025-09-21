@@ -108,7 +108,34 @@ We choose splits that **maximize** $$R^2(S)$$.
 
 ## Experiment Design
 ### Hyperparameters
-TBD
+
+All experiments use **default settings** unless otherwise specified.
+
+#### Quantile Regression Tree (QRT)
+
+| Parameter          | Value |
+|-------------------|-------|
+| `max_depth`       | 10    |
+| `min_samples_leaf`| 5     |
+| `random_state`    | 42    |
+
+#### Quantile Regression Forest (QRF)
+
+| Parameter          | Value |
+|-------------------|-------|
+| `n_estimators`    | 100   |
+| `max_depth`       | 10    |
+| `min_samples_leaf`| 5     |
+| `random_state`    | 42    |
+
+#### Rolling Window Setup
+
+| Parameter        | Value |
+|-----------------|-------|
+| `train_period`  | 5 (years) |
+| `test_period`   | 1 (year) |
+| `ql`            | 0.3 |
+| `qh`            | 0.7 |
 
 ### Trading Stategy
 
