@@ -45,8 +45,6 @@ And, critically, it compares three split criteria used to grow trees:
 - MSE → minimize within-node SSE (classic CART),
 - $R^2$ → maximize $R^2$ (SSE reduction ratio).
 
-## Dataset
-TBD
 
 ## Tree Optimization
 - **Keep data as NumPy arrays + pass index views**
@@ -107,6 +105,24 @@ We choose splits that **maximize** $$R^2(S)$$.
 
 
 ## Experiment Design
+### Dataset
+
+Our experiments are based on a **financial ESG dataset**, augmented with **text-derived features** and historical price information.
+
+- **Time Range:** 2003–2023  
+- **Samples:** ~97000 observations  
+- **Features:** 500+ ESG-related TF-IDF features extracted from company filings  
+- **Target:** Daily stock return (`報酬率`)
+
+### Feature Composition
+
+- **TF-IDF Features:**  
+  Each sample contains a vector of word importance scores capturing ESG disclosure intensity.
+
+- **Price History:**  
+  Includes open, high, low, and close prices with multiple day lags/leads (e.g., `OPENPRC_1d`, `BIDLO_-4d`).
+
+  
 ### Hyperparameters
 
 All experiments use **default settings** unless otherwise specified.
