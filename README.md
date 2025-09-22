@@ -163,6 +163,37 @@ All experiments use **default settings** unless otherwise specified.
 
 ### Trading Stategy
 
+#### Signal Construction
+- Each rolling test window is enriched with two columns: `pred_q0.3` and `pred_q0.7`, produced by the chosen quantile model.
+- The entry candle is the row where `OPENPRC_1d` is observed; rows with invalid or missing prices are ignored.
+- For a long candidate we compute a gating ratio `(OPENPRC_1d - BIDLO_-4d) / BIDLO_-4d`. The trade is eligible only when:
+  - the upper quantile forecast is positive,
+  - the previous four-day low exists and the ratio is positive, and
+  - the ratio does not exceed the forecasted upper quantile. This keeps the breakout size consistent with what the model expects.
+- No other filters (volume, trend, etc.) are currently applied; every row that survives the checks becomes a simulated long trade.
+
+#### Long Trade Management
+- The entry is executed at `OPENPRC_1d`.
+- The profit target is derived from the previous low: `target_price = BIDLO_-4d * (1 + pred_q0.7)`. This ties the expected upside to how far the model believes price can rebound from the recent trough.
+- A fixed 10% stop is placed immediately via `stop_price = OPENPRC_1d * 0.9`.
+- The exit logic scans the next three sessions (labelled `OPENPRC_2d` through `OPENPRC_4d`, plus their corresponding high/low/close columns):
+  - If the gap-open on day 2–4 hits either the target or the stop, the position is closed at that open.
+  - Otherwise, intraday highs and lows are checked; touching the target or stop produces the respective return.
+  - Any position still open at the end of day 4 is liquidated at `PRC_4d`.
+- Realized percentage P&L is logged in the `return` column, and the cumulative series is tracked via `total_return`.
+
+#### Short Side (Inactive)
+Although a `_simulate_short` function has been implemented in the code, it is currently disabled.  
+The reason is that our training set and feature design are based primarily on **long-side scenarios**,  
+and there is insufficient short-side data to support meaningful backtesting.  
+
+Therefore, all reported results and metrics are **long-only**.  
+
+#### Reporting
+- The trading function returns the per-row ledger with realized returns and `total_return` used in the benchmark metrics.
+- These outputs feed into `metrics.csv`, where cumulative performance is compared across model/split-criterion combinations.
+
+
 ### Rolling-Window Setup
 
 - **Training window**: $$N_\text{train}$$ years (default 5)  
