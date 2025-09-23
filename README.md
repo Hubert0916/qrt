@@ -249,3 +249,13 @@ TBD
 ...Model Tree...
 
 
+## References
+
+- [1] Nicolai Meinshausen. *Quantile Regression Forests*. Journal of Machine Learning Research, 7(35):983–999, 2006. (https://jmlr.org/papers/v7/meinshausen06a.html)
+
+- [2] Yifan Zhang, et al. *Quantile Regression Forests Revisited*. arXiv:2402.14955v2, 2024. (https://arxiv.org/abs/2402.14955v2)
+
+- [3] Huang, J., Wan, S., Mao, W. *et al.* Risk-Aware Quantitative Mineral Prospectivity Mapping with Quantile-based Regression Models. *Natural Resources Research*, 33, 2433–2455 (2024). (https://doi.org/10.1007/s11053-024-10403-8)
+
+
+
