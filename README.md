@@ -173,7 +173,7 @@ All experiments use **default settings** unless otherwise specified.
 | `ql`            | 0.3 |
 | `qh`            | 0.7 |
 
-### Trading Stategy
+### Trading Strategy
 
 #### Signal Construction
 - Each rolling test window is enriched with two columns: `pred_q0.3` and `pred_q0.7`, produced by the chosen quantile model.
