@@ -1,13 +1,13 @@
+# plot_advanced_metrics
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mtick
 import pandas as pd
 import numpy as np
 import os
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--input", type=str, default="output/benchmark/metrics.csv")
-parser.add_argument("--outdir", type=str, default="output/advanced")
+parser.add_argument("--input", type=str, default="../output/benchmark/metrics.csv")
+parser.add_argument("--outdir", type=str, default="../output/advanced")
 parser.add_argument("--ql", type=float, default=0.3)
 parser.add_argument("--qh", type=float, default=0.7)
 args = parser.parse_args()
