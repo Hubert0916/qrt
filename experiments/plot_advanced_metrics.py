@@ -60,6 +60,36 @@ if __name__ == "__main__":
     plt.savefig(os.path.join(args.outdir, "pinball_sum_per_window.png"), dpi=200)
     plt.close()
 
+    # --- Signed Calibration Gap per Window (coverage − (qh−ql)) ---
+    nominal = args.qh - args.ql
+    tol = getattr(args, "coverage_tolerance", 0.05)  # 沒有 argparse 也會用 0.05
+
+    work = metrics_df.copy()
+    work["signed_gap"] = work["coverage"].astype(float) - nominal
+
+    wmin = int(work["window"].min())
+    wmax = int(work["window"].max())
+    xs = np.arange(wmin, wmax + 1)
+
+    plt.figure(figsize=(12, 6))
+    for (m, c), g in work.groupby(["model", "criterion"]):
+        gs = g.sort_values("window")
+        plt.plot(gs["window"], gs["signed_gap"], marker="o", linewidth=1.6, label=f"{m}/{c}")
+
+    plt.axhline(0.0, linewidth=1.0)
+    plt.fill_between(xs, -tol, tol, alpha=0.12, label=f"±{tol:.02f} tolerance")
+
+    plt.xticks(xs)
+    plt.xlabel("Rolling Window")
+    plt.ylabel("Signed Calibration Gap = coverage − (qh−ql)")
+    plt.title(f"Signed Calibration Gap per Window (nominal = {nominal:.2f})")
+    plt.legend(ncol=3, fontsize=9)
+    plt.grid(True, linewidth=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(args.outdir, "04_signed_calibration_gap_per_window.png"), dpi=200)
+    plt.close()
+
+
     # --- Culmulative Return for each window (optional) ---
     plt.figure(figsize=(12, 6))
     for (m, c), group in metrics_df.groupby(["model", "criterion"]):
