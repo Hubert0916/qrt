@@ -25,6 +25,13 @@
   QRT with <code>r²</code>-based splitting achieved the highest trading performance, nearly doubling the cumulative return compared to all other configurations. QRF variants showed stable but lower returns.
 </p>
 
+<p align="center"> 
+  <img width="2200" height="1320" alt="qrt_size_sweep" src="https://github.com/user-attachments/assets/0a91815e-bec0-4f5b-b6c2-984845b960ef" />
+</p>
+<p align="center">
+  <b>Figure 4.</b> <i>Execution time vs. training size for old and optimized QRT implementations.</i><br>
+  The optimized version consistently achieves <strong>20×–100× faster training</strong> (geometric mean speedup ≈<strong>60×</strong>) while maintaining similar pinball loss.
+</p>
 
 
 ## Motivation
