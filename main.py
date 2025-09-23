@@ -10,6 +10,7 @@ import matplotlib.ticker as mtick
 from models.quantile_regression_forest import QuantileRegressionForest
 from models.quantile_regression_tree import QuantileRegressionTree
 from utils.data_loader import rolling_time, load_data
+from utils.trading_stategy import trading_rule
 
 # ------------------------------ CLI -------------------------------- #
 
@@ -23,8 +24,9 @@ parser.add_argument("--max_depth", type=int, default=10)
 parser.add_argument("--min_samples_leaf", type=int, default=5)
 parser.add_argument("--qh", type=float, default=0.7)
 parser.add_argument("--ql", type=float, default=0.3)
-parser.add_argument("--data", type=str, default="data/esg_tfidf_with_return_cleaned.csv")
-parser.add_argument("--outdir", type=str, default="output/benchmark")
+parser.add_argument("--data", type=str,
+                    default="data/esg_tfidf_with_return_cleaned.csv")
+parser.add_argument("--outdir", type=str, default="output/benchmark_split")
 parser.add_argument("--n_estimators", type=int, default=100)
 parser.add_argument("--random_state", type=int, default=42)
 args = parser.parse_args()
@@ -32,160 +34,24 @@ args = parser.parse_args()
 TRAIN_PERIOD = args.train_period
 TEST_PERIOD = args.test_period
 
-# --------------------------- Metrics & Trading --------------------------- #
+# --------------------------- Metrics --------------------------- #
+
 
 def pinball_loss(y_true: np.ndarray, y_pred: np.ndarray, q: float) -> float:
     """Average pinball loss for quantile q."""
     r = y_true - y_pred
     return np.mean(np.maximum(q * r, (q - 1) * r))
 
+
 def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) -> float:
     """Fraction of targets lying within [ql, qh] interval."""
     return float(np.mean((y_true >= ql_pred) & (y_true <= qh_pred)))
 
-def _valid_price(value) -> bool:
-    try:
-        return pd.notna(value) and float(value) > 0
-    except (TypeError, ValueError):
-        return False
-
-# return the percentage
-def _simulate_long(row: pd.Series, entry_price: float, previous_low: float, target_return: float) -> float:
-    if target_return <= 0:
-        return 0.0
-
-    target_price = max(previous_low * (1.0 + target_return), 1e-6)
-    stop_price = max(entry_price * 0.9, 1e-6)
-
-    for day in (2, 3, 4):
-        open_price = row.get(f"OPENPRC_{day}d")
-        high_price = row.get(f"ASKHI_{day}d")
-        low_price = row.get(f"BIDLO_{day}d")
-        close_price = row.get(f"PRC_{day}d")
-
-        if day > 1 and _valid_price(open_price):
-            open_price = float(open_price)
-            if open_price >= target_price:
-                return open_price / entry_price - 1.0
-            if open_price <= stop_price:
-                return open_price / entry_price - 1.0
-
-        if _valid_price(high_price) and float(high_price) >= target_price:
-            return target_price / entry_price - 1.0
-        if _valid_price(low_price) and float(low_price) <= stop_price:
-            return stop_price / entry_price - 1.0
-
-        if day == 4 and _valid_price(close_price):
-            return float(close_price) / entry_price - 1.0
-
-    return 0.0
-
-
-def _simulate_short(row: pd.Series, entry_price: float, target_return: float) -> float:
-    if target_return >= 0:
-        return 0.0
-
-    target_price = max(entry_price * (1.0 + target_return), 1e-6)
-    stop_return = abs(target_return) / 10.0
-    stop_price = max(entry_price * (1.0 + stop_return), 1e-6)
-
-    for day in (1, 2, 3):
-        open_price = row.get(f"OPENPRC_{day}d")
-        high_price = row.get(f"ASKHI_{day}d")
-        low_price = row.get(f"BIDLO_{day}d")
-        close_price = row.get(f"PRC_{day}d")
-
-        if day > 1 and _valid_price(open_price):
-            open_price = float(open_price)
-            if open_price <= target_price:
-                return 1.0 - open_price / entry_price
-            if open_price >= stop_price:
-                return 1.0 - open_price / entry_price
-
-        if _valid_price(low_price) and float(low_price) <= target_price:
-            return 1.0 - target_price / entry_price
-        if _valid_price(high_price) and float(high_price) >= stop_price:
-            return 1.0 - stop_price / entry_price
-
-        if day == 3 and _valid_price(close_price):
-            return 1.0 - float(close_price) / entry_price
-
-    return 0.0
-
-
-# Trading strategy based on quantile predictions and 4-day management rules
-def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
-    df = test_df.copy()
-    df["return"] = 0.0
-
-    up_col = f"pred_q{qh}"
-    low_col = f"pred_q{ql}"
-
-    for idx, row in df.iterrows():
-        entry_price = row.get("OPENPRC_1d")
-        if not _valid_price(entry_price):
-            continue
-        entry_price = float(entry_price)
-
-        upper_pred = row.get(up_col)
-        lower_pred = row.get(low_col)
-
-        trade_return = 0.0
-
-        prev_low = row.get("BIDLO_-4d")
-        prev_high = row.get("ASKHI_-4d")
-
-        long_gate = (
-            (entry_price - prev_low) / prev_low
-            if prev_low is not None else None
-        )
-
-        short_gate = (
-            (entry_price - prev_high) / prev_high
-            if prev_high is not None else None
-        )
-
-        if (
-            upper_pred is not None
-            and not pd.isna(upper_pred)
-            and upper_pred > 0
-            and long_gate is not None
-            and long_gate > 0
-            and long_gate <= float(upper_pred)
-        ):
-            trade_return = _simulate_long(row, entry_price, prev_low, float(upper_pred))
-
-        # Version A (strict): require the realized drop to reach 30% of the predicted lower bound magnitude.
-        # cond_short_a = (
-        #     lower_pred is not None
-        #     and not pd.isna(lower_pred)
-        #     and lower_pred < 0
-        #     and short_gate is not None
-        #     and short_gate < 0
-        #     and abs(short_gate) >= 0.3 * abs(float(lower_pred))
-        # )
-
-        # Version B (lenient): trigger once the realized drop exceeds 30% of the predicted lower bound (still negative).
-        # cond_short_b = (
-        #     lower_pred is not None
-        #     and not pd.isna(lower_pred)
-        #     and lower_pred < 0
-        #     and short_gate is not None
-        #     and short_gate < 0
-        #     and short_gate >= 0.3 * float(lower_pred)
-        # )
-
-        # if cond_short_b:
-        #     trade_return = _simulate_short(row, entry_price, float(lower_pred))
-        df.at[idx, "return"] = trade_return
-
-    df["total_return"] = df["return"].cumsum()
-    return df
 
 # ----------------------------- Training ------------------------------- #
-
 SplitCriterion = ["loss", "mse", "r2"]
 ModelKinds = ["QRT", "QRF"]
+
 
 def fit_predict_qrt(
     X_train: pd.DataFrame,
@@ -227,6 +93,7 @@ def fit_predict_qrt(
     y_pred_l = model_l.predict(X_test)
     y_pred_h = model_h.predict(X_test)
     return y_pred_l, y_pred_h
+
 
 def fit_predict_qrf(
     X_train: pd.DataFrame,
@@ -279,6 +146,7 @@ def fit_predict_qrf(
 
 # --------------------------- Orchestration ---------------------------- #
 
+
 def run_benchmark() -> None:
     os.makedirs(args.outdir, exist_ok=True)
 
@@ -291,11 +159,13 @@ def run_benchmark() -> None:
 
     # Collect per-window & aggregated metrics
     records: List[Dict] = []
-    equity_curves: Dict[Tuple[str, str], List[pd.DataFrame]] = {}  # (model, crit) -> list of test dfs
+    # (model, crit) -> list of test dfs
+    equity_curves: Dict[Tuple[str, str], List[pd.DataFrame]] = {}
 
     for win in range(n_windows):
         print(f"\n=== Rolling window {win + 1}/{n_windows} ===")
-        train_df, test_df = load_data(args.data, TRAIN_PERIOD, TEST_PERIOD, win)
+        train_df, test_df = load_data(
+            args.data, TRAIN_PERIOD, TEST_PERIOD, win)
 
         # Features/labels
         x_cols = [c for c in train_df.columns if c.endswith("_TFIDF")]
@@ -394,7 +264,8 @@ def run_benchmark() -> None:
     ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.set_ylabel("Mean Pinball Loss (ql+qh)")
     ax.set_title("Quantile Regression Accuracy (Pinball Loss)")
-    ax.set_ylim(agg["pinball_sum"].min() * 0.95, agg["pinball_sum"].max() * 1.05)
+    ax.set_ylim(agg["pinball_sum"].min() * 0.95,
+                agg["pinball_sum"].max() * 1.05)
     add_bar_labels(ax, agg["pinball_sum"])
     plt.tight_layout()
     plt.savefig(os.path.join(args.outdir, "01_pinball_sum_bar.png"), dpi=200)
@@ -403,7 +274,8 @@ def run_benchmark() -> None:
     # --- 1.1) Pinball Loss for each window (optional) ---
     plt.figure(figsize=(12, 6))
     for (m, c), group in metrics_df.groupby(["model", "criterion"]):
-        plt.plot(group["window"], group["pinball_sum"], marker='o', label=f"{m}/{c}")
+        plt.plot(group["window"], group["pinball_sum"],
+                 marker='o', label=f"{m}/{c}")
     plt.xticks(range(1, n_windows + 1))
     plt.xlabel("Rolling Window")
     plt.ylabel("Pinball Loss (ql + qh)")
@@ -411,7 +283,8 @@ def run_benchmark() -> None:
     plt.legend()
     plt.grid(True, linewidth=0.3)
     plt.tight_layout()
-    plt.savefig(os.path.join(args.outdir, "01-1_pinball_sum_per_window.png"), dpi=200)
+    plt.savefig(os.path.join(
+        args.outdir, "01-1_pinball_sum_per_window.png"), dpi=200)
     plt.close()
 
     # --- 2) Coverage ---
@@ -421,10 +294,13 @@ def run_benchmark() -> None:
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.set_ylabel("Mean Coverage Rate")
-    ax.set_title(f"Interval Coverage between q{args.ql:.2f} and q{args.qh:.2f}")
-    ax.set_ylim(agg["coverage"].min() * 0.95, min(1.0, agg["coverage"].max() * 1.05))
+    ax.set_title(
+        f"Interval Coverage between q{args.ql:.2f} and q{args.qh:.2f}")
+    ax.set_ylim(agg["coverage"].min() * 0.95,
+                min(1.0, agg["coverage"].max() * 1.05))
     add_bar_labels(ax, agg["coverage"], fmt="{:.3f}")
-    ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))  # optional: show as %
+    ax.yaxis.set_major_formatter(
+        mtick.PercentFormatter(1.0))  # optional: show as %
     plt.tight_layout()
     plt.savefig(os.path.join(args.outdir, "02_coverage_bar.png"), dpi=200)
     plt.close()

@@ -55,24 +55,29 @@ And, critically, it compares three split criteria used to grow trees:
 
 
 ## Tree Optimization
-- **Keep data as NumPy arrays + pass index views**
-  - Store `X`(feature matrix), `y`(target matrix) once; each node carries only an `indices` view (zero-copy).
 
-- **Single-pass threshold search per feature**
-  - Sort samples **once** by the candidate feature, then scan all split points on this
-    sorted array.
-  - Turns “rebuild mask for every threshold” into “sort once + scan”.
+### 1. Zero-Copy Data Handling
+-  **Method:** Data is never copied. The full feature matrix `X` and target vector `y` are stored only once in memory. When a tree node splits, it passes a lightweight **index array** to its children, not a subset of the data. This array tells the child node which rows of the original data it is responsible for.
+-  **Benefit:** This significantly reduces memory consumption and avoids the time overhead of data copying, allowing the model to handle much larger datasets.
 
-- **Vectorized MSE using prefix sums**
-  - Precompute cumulative count/sum/sum-of-squares; each split’s SSE (left+right) is computed in **O(1)** with closed-form formulas.
+### 2. Efficient Single-Pass Threshold Search
 
-- **Cap candidate thresholds (K) with optional random subsampling**
-  - If a feature has many unique values, evaluate at most **K** cut points.
-  - Linear, predictable runtime with minimal accuracy loss (especially in forests).
+-  **Method:** To find the best split for a feature, a naive approach would be to re-scan the data for every possible threshold. Our implementation sorts the data **once** by the feature's values, while also reordering the target vector `y` in the same way. Afterwards, all candidate split points can be evaluated by scanning this single sorted array.
 
-- **Optional random feature subspace (√d per node)**
-  - Evaluate splits on a subset of features (Random-Forest style).
-  - Faster training + more diverse trees → often better generalization.
+-   **Benefit:** This avoids massive amounts of redundant computation, transforming an expensive operation (re-scan for every threshold) into an efficient one (sort once, then scan once).
+
+### 3. Vectorized MSE Calculation with Prefix Sums
+
+-  **Method:** When using Mean Squared Error (MSE) as the splitting criterion, we employ a technique called **Prefix Sums**. We pre-compute the cumulative sum of sample counts, target values, and squared target values. With these pre-computed arrays, the Sum of Squared Errors (SSE) for any split can be calculated in **O(1) time** using a simple formula.
+
+-  **Benefit:** This is an algorithmic leap that makes the process of scoring split points nearly instantaneous, resulting in an order-of-magnitude speedup.
+
+### 4. Accelerated Quantile Calculation with `np.partition`
+
+-  **Method:** When calculating Quantile Loss or $R^2$, we need to find a specific quantile of the data. A full sort, as used by `np.quantile`, takes `O(nlogn)` time. We use `np.partition` instead, which is based on the [Quickselect](https://en.wikipedia.org/wiki/Quickselect) algorithm. It only needs to find the k-th smallest element and place it in its correct sorted position, without sorting the rest of the array. Its average time complexity is just `O(n)`.
+
+-  **Benefit:** `O(n)` is significantly faster than `O(nlogn)`. For large datasets, this change saves a substantial amount of time during quantile computation.
+
   
 
 ## Split Criteria
