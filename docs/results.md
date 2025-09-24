@@ -1,9 +1,5 @@
 # Results — Quantile Trees & Forests
 
-**Setup.** Quantiles **ql = 0.3, qh = 0.7** (nominal coverage **0.4**).  
-**Data.** ESG TF-IDF features + price fields; target = next-day return.  
-**Evaluation.** Rolling windows (train 5y, test 1y), model × split rule (QRT/QRF × loss/mse/r²).
-
 ---
 
 ## 1) Key Findings
