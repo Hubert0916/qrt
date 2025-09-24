@@ -265,7 +265,7 @@ QRT is more criterion-sensitive; r² maximizes P&L but is less well-calibrated (
 
 Full Results
 
-For per-window plots, calibration diagnostics, and discussion, see docs/results.md
+For per-window plots, calibration diagnostics, and discussion, see [Full results](docs/results.md)
 
 ## Future Work
 
