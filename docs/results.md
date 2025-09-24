@@ -98,6 +98,7 @@ Averaging over the three split rules, comparing **QRF vs QRT**:
 
 
 **Pinball vs P&L (scatter)**  
+Lower pinball does not necessarily lead to higher P&L — quantile accuracy and strategy performance are not monotonically aligned.
 <p align="center">
   <img src="../output/advanced/pinball_vs_cum_return_no_outlier.png"
        alt="Pinball vs P&L (no outlier)" width="900"><br>
@@ -109,8 +110,6 @@ Averaging over the three split rules, comparing **QRF vs QRT**:
        alt="Pinball vs P&L (full)" width="900"><br>
   <b>Figure 9.</b> <i>Pinball vs P&L (full view with outlier).</i>
 </p>
-
-_Quantile accuracy and strategy P&L are not monotonically aligned (objective misalignment)._
 
 ---
 
