@@ -1,14 +1,10 @@
 # Results — Quantile Trees & Forests
 
----
-
 ## 1) Key Findings
 
 - **QRF is the best probabilistic forecaster:** lowest average **pinball (↓)** across windows and **coverage** closer to the nominal 0.4; nearly insensitive to the split rule.
 - **QRT/r² attains the highest P&L:** under our long-only rule, QRT with r² splits delivers the top average final cumulative return. **Trading performance ≠ better quantile accuracy** (different objective).
 - **Robustness:** QRF behaves similarly across split rules; QRT is more sensitive to both the split rule and market window (regime spikes appear in some windows).
-
----
 
 ## 2) Main Results (figures + table)
 
