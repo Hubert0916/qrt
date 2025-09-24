@@ -235,7 +235,7 @@ Quantiles evaluated: $$q_l = 0.1, q_h = 0.9$$
 
 
 ##  Results
-###Key Findings
+### Key Findings
 
 QRF is the best probabilistic forecaster. Lowest pinball (↓) and coverage closest to 0.4; almost invariant to the split rule.
 
@@ -243,10 +243,7 @@ QRT/r² has the highest P&L under our long-only rule — but trading performance
 
 Robustness. QRF behaves similarly across split rules; QRT is more sensitive to both the split rule and market window (regime spikes).
 
-###Main Figures
-<p align="center"> <img src="output/benchmark_split/01_pinball_sum_bar.png" alt="Figure 1 — Pinball Loss (lower is better)" width="900"><br> <b>Figure 1.</b> <i>Pinball loss (lower is better). QRF is lowest and robust to the split rule.</i> </p> <p align="center"> <img src="output/benchmark_split/02_coverage_bar.png" alt="Figure 2 — Coverage between ql=0.3 and qh=0.7 (target ≈ 0.4)" width="900"><br> <b>Figure 2.</b> <i>Coverage between ql=0.3 and qh=0.7 (target ≈ 0.4). QRF is closer to nominal.</i> </p> <p align="center"> <img src="output/benchmark_split/03_cum_return_bar.png" alt="Figure 3 — Mean Final Cumulative Return" width="900"><br> <b>Figure 3.</b> <i>QRT/r² attains the highest average P&L under our long-only rule.</i> </p>
-
-###Aggregated Performance (means across windows)
+### Aggregated Performance (means across windows)
 
 Metrics: Pinball (↓), Coverage (→ 0.40), Calibration Gap = |Coverage − 0.40| (↓), Mean CumRet (↑).
 Windows: nWindows = 15.
