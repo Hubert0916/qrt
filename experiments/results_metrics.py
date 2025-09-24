@@ -151,6 +151,12 @@ def main() -> None:
         default="model,criterion",
         help="Comma-separated columns to group by (e.g. 'model,criterion' or 'model').",
     )
+    parser.add_argument(
+        "--coverage_tolerance", 
+        type=float,
+        default=0.05,
+        help="Tolerance for coverage deviation from target (not used in current summary)."
+    )
     args = parser.parse_args()
 
     df = pd.read_csv(args.input)

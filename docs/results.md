@@ -55,10 +55,16 @@
 
 ## 3) Model-level comparison & robustness
 
-Averaging over the three split rules, comparing **QRF vs QRT**:
+Averaged over split rules, **QRF** has better probabilistic quality (lower pinball, smaller calibration gap, closer to nominal coverage), while **QRT** attains higher mean P&L.
 
-- **QRF** dominates in quantile accuracy and calibration, and is **insensitive** to the split rule.  
-- **QRT** has higher average P&L (pulled up by r² windows), but this should be interpreted separately from quantile metrics.
+### Model-Level Averages
+
+Mean metrics collapsed across all split criteria for each model.
+
+| Model | Pinball (↓) | Coverage (→0.40) | Calib. Gap (↓) | Mean CumRet (↑) | nWindows |
+| :---  | ---: | ---: | ---: | ---: | ---: |
+| **QRF** | **0.1531** | **0.3537** | **0.0463** | 5.05 | 15 |
+| **QRT** | 0.1624 | 0.3170 | 0.0830 | **6.57** | 15 |
 
 <p align="center">
   <img src="../output/advanced/pinball_sum_per_window.png"
@@ -118,3 +124,16 @@ Lower pinball does not necessarily lead to higher P&L — quantile accuracy and 
 Our trading rule is **long-only**, with 4-day target/stop management, using **pred_q0.7** as the long trigger (with gating); the **short side is disabled**.  
 Under this rule, **QRT/r²** may partition the samples into groups more favorable to this specific strategy, leading to higher P&L, while its split rule is **mean-oriented** and **not aligned** with quantile accuracy/calibration.  
 Therefore, **higher P&L ≠ better quantile forecasts**. Interpret **probabilistic quality** (pinball/coverage) separately from **strategy performance**.
+
+## 6) Conclusion
+
+**TL;DR.** For probabilistic accuracy and calibrated intervals, **use QRF**; for this specific long-only rule, **QRT/r²** can yield higher average P&L, but that does **not** imply better quantile forecasts.
+
+**What we learned**
+- **Quantile accuracy.** QRF achieves the lowest **pinball** (≈ **0.153**) and the smallest **calibration gap** (≈ **0.046** to the nominal 0.4), and is largely **insensitive** to the split rule (loss/mse/r²).
+- **Calibration over time.** The **signed calibration gap** (Fig. 5) shows QRF stays nearer to 0 and within ±0.05 more often; QRT exhibits larger negative dips (under-coverage) in several windows.
+- **Trading performance.** Under our long-only gate/target/stop rule, **QRT/r²** delivers the highest mean final cumulative return (**10.20**), while QRF variants are steadier but lower (~**5.05**). This reflects **objective misalignment**: maximizing P&L for this rule is different from producing well-calibrated quantiles.
+
+**Practical takeaway**
+- If downstream decisions need **risk bounds / VaR-like intervals** or thresholds on **ql/qh**, prefer **QRF** (better-calibrated).
+- If you only care about **this exact P&L rule**, QRT/r² can be competitive — but monitor **coverage** and **regime sensitivity**.

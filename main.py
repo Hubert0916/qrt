@@ -10,7 +10,7 @@ import matplotlib.ticker as mtick
 from models.quantile_regression_forest import QuantileRegressionForest
 from models.quantile_regression_tree import QuantileRegressionTree
 from utils.data_loader import rolling_time, load_data
-from utils.trading_stategy import trading_rule
+from utils.trading_strategy import trading_rule
 
 # ------------------------------ CLI -------------------------------- #
 
