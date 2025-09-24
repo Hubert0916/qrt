@@ -109,6 +109,7 @@ Averaging over the three split rules, comparing **QRF vs QRT**:
        alt="Pinball vs P&L (full)" width="900"><br>
   <b>Figure 9.</b> <i>Pinball vs P&L (full view with outlier).</i>
 </p>
+
 _Quantile accuracy and strategy P&L are not monotonically aligned (objective misalignment)._
 
 ---
