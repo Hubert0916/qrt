@@ -282,8 +282,8 @@ class QuantileRegressionForest:
     def predict_interval(
         self,
         X: Union[pd.DataFrame, np.ndarray],
-        lower_quantile: float = 0.1,
-        upper_quantile: float = 0.9,
+        lower_quantile: float = 0.3,
+        upper_quantile: float = 0.7,
     ):
         """
         Predict a (lower, upper) interval by calling `predict` twice.
