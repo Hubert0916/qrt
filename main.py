@@ -53,6 +53,11 @@ SplitCriterion = ["loss", "mse", "r2"]
 ModelKinds = ["QRT", "QRF"]
 
 
+def quantile_dir_suffix(ql: float, qh: float) -> str:
+    """Return deterministic folder suffix for a quantile pair."""
+    return f"ql_{round(ql*100):02d}_qh_{round(qh*100):02d}"
+
+
 def fit_predict_qrt(
     X_train: pd.DataFrame,
     y_train: pd.Series,
@@ -147,12 +152,13 @@ def fit_predict_qrf(
 # --------------------------- Orchestration ---------------------------- #
 
 
-def run_benchmark() -> None:
-    os.makedirs(args.outdir, exist_ok=True)
+def run_benchmark(ql: float, qh: float, outdir: str) -> None:
+    os.makedirs(outdir, exist_ok=True)
 
     print("================================")
     print("Benchmark: QRT vs QRF under split criteria [loss, mse, r2]")
     print(f"Train Period: {TRAIN_PERIOD}, Test Period: {TEST_PERIOD}")
+    print(f"Quantiles: ql={round(ql*100):02d}, qh={round(qh*100):02d}")
     print("================================")
 
     n_windows = rolling_time(args.data, TRAIN_PERIOD, TEST_PERIOD)
@@ -176,31 +182,33 @@ def run_benchmark() -> None:
             for crit in SplitCriterion:
                 if model_kind == "QRT":
                     y_pred_l, y_pred_h = fit_predict_qrt(
-                        X_train, y_train, X_test, crit, args.ql, args.qh,
+                        X_train, y_train, X_test, crit, ql, qh,
                         args.max_depth, args.min_samples_leaf, x_cols, args.random_state
                     )
                 else:  # QRF
                     y_pred_l, y_pred_h = fit_predict_qrf(
-                        X_train, y_train, X_test, crit, args.ql, args.qh,
+                        X_train, y_train, X_test, crit, ql, qh,
                         args.n_estimators, args.max_depth, args.min_samples_leaf, args.random_state
                     )
 
                 # Metrics
-                pl_ql = pinball_loss(y_test.values, y_pred_l, args.ql)
-                pl_qh = pinball_loss(y_test.values, y_pred_h, args.qh)
+                pl_ql = pinball_loss(y_test.values, y_pred_l, ql)
+                pl_qh = pinball_loss(y_test.values, y_pred_h, qh)
                 cov = coverage_rate(y_test.values, y_pred_l, y_pred_h)
 
                 # Trading
                 df_pred = test_df.copy()
-                df_pred[f"pred_q{args.ql}"] = y_pred_l
-                df_pred[f"pred_q{args.qh}"] = y_pred_h
-                df_traded = trading_rule(df_pred, args.qh, args.ql)
+                df_pred[f"pred_q{ql}"] = y_pred_l
+                df_pred[f"pred_q{qh}"] = y_pred_h
+                df_traded = trading_rule(df_pred, qh, ql)
                 cum_ret_final = float(df_traded["total_return"].iloc[-1])
 
                 # Save window record
                 records.append(
                     dict(
                         window=win + 1,
+                        ql=ql,
+                        qh=qh,
                         model=model_kind,
                         criterion=crit,
                         pinball_ql=pl_ql,
@@ -218,14 +226,14 @@ def run_benchmark() -> None:
                 )
 
                 print(
-                    f"[{model_kind}/{crit}]  Pinball(q{args.ql:.2f})={pl_ql:.4f}  "
-                    f"Pinball(q{args.qh:.2f})={pl_qh:.4f}  "
+                    f"[{model_kind}/{crit}]  Pinball(q{round(ql*100):02d})={pl_ql:.4f}  "
+                    f"Pinball(q{round(qh*100):02d})={pl_qh:.4f}  "
                     f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}"
                 )
 
     # Aggregate to DataFrame
     metrics_df = pd.DataFrame.from_records(records)
-    metrics_df.to_csv(os.path.join(args.outdir, "metrics.csv"), index=False)
+    metrics_df.to_csv(os.path.join(outdir, "metrics.csv"), index=False)
 
     # ------------------------------- Plots ------------------------------- #
 
@@ -263,12 +271,12 @@ def run_benchmark() -> None:
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.set_ylabel("Mean Pinball Loss (ql+qh)")
-    ax.set_title("Quantile Regression Accuracy (Pinball Loss)")
+    ax.set_title(f"Quantile Regression Accuracy (Pinball Loss) ql={round(ql*100):02d} qh={round(qh*100):02d}")
     ax.set_ylim(agg["pinball_sum"].min() * 0.95,
                 agg["pinball_sum"].max() * 1.05)
     add_bar_labels(ax, agg["pinball_sum"])
     plt.tight_layout()
-    plt.savefig(os.path.join(args.outdir, "01_pinball_sum_bar.png"), dpi=200)
+    plt.savefig(os.path.join(outdir, "01_pinball_sum_bar.png"), dpi=200)
     plt.close()
 
     # --- 1.1) Pinball Loss for each window (optional) ---
@@ -284,7 +292,7 @@ def run_benchmark() -> None:
     plt.grid(True, linewidth=0.3)
     plt.tight_layout()
     plt.savefig(os.path.join(
-        args.outdir, "01-1_pinball_sum_per_window.png"), dpi=200)
+        outdir, "01-1_pinball_sum_per_window.png"), dpi=200)
     plt.close()
 
     # --- 2) Coverage ---
@@ -295,14 +303,14 @@ def run_benchmark() -> None:
     ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.set_ylabel("Mean Coverage Rate")
     ax.set_title(
-        f"Interval Coverage between q{args.ql:.2f} and q{args.qh:.2f}")
+        f"Interval Coverage between q{round(ql*100):02d} and q{round(qh*100):02d}")
     ax.set_ylim(agg["coverage"].min() * 0.95,
                 min(1.0, agg["coverage"].max() * 1.05))
     add_bar_labels(ax, agg["coverage"], fmt="{:.3f}")
     ax.yaxis.set_major_formatter(
         mtick.PercentFormatter(1.0))  # optional: show as %
     plt.tight_layout()
-    plt.savefig(os.path.join(args.outdir, "02_coverage_bar.png"), dpi=200)
+    plt.savefig(os.path.join(outdir, "02_coverage_bar.png"), dpi=200)
     plt.close()
 
     # --- 3) Cumulative Return ---
@@ -316,15 +324,24 @@ def run_benchmark() -> None:
     ax.set_ylim(agg["cum_return"].min() * 0.95, agg["cum_return"].max() * 1.05)
     add_bar_labels(ax, agg["cum_return"], fmt="{:.2f}")
     plt.tight_layout()
-    plt.savefig(os.path.join(args.outdir, "03_cum_return_bar.png"), dpi=200)
+    plt.savefig(os.path.join(outdir, "03_cum_return_bar.png"), dpi=200)
     plt.close()
 
     # Console summary
     print("\n================================")
     print("Aggregated performance (mean across windows):")
     print(agg.to_string(index=False))
-    print("Saved metrics.csv and plots to:", args.outdir)
+    print("Saved metrics.csv and plots to:", outdir)
 
 
 if __name__ == "__main__":
-    run_benchmark()
+    quantile_pairs: List[Tuple[float, float]] = [
+        (0.3, 0.6),
+        (0.3, 0.7),
+        (0.3, 0.8),
+    ]
+
+    for ql_value, qh_value in quantile_pairs:
+        outdir_suffix = quantile_dir_suffix(ql_value, qh_value)
+        target_outdir = os.path.join(args.outdir, outdir_suffix)
+        run_benchmark(ql_value, qh_value, target_outdir)
