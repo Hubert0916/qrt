@@ -278,21 +278,3 @@ class QuantileRegressionForest:
                 preds.append(self._fallback_quantile)
 
         return np.asarray(preds, dtype=float)
-
-    def predict_interval(
-        self,
-        X: Union[pd.DataFrame, np.ndarray],
-        lower_quantile: float = 0.3,
-        upper_quantile: float = 0.7,
-    ):
-        """
-        Predict a (lower, upper) interval by calling `predict` twice.
-
-        Returns
-        -------
-        (lower, upper) : tuple of np.ndarray
-            Element-wise interval bounds.
-        """
-        lower = self.predict(X, quantile=lower_quantile)
-        upper = self.predict(X, quantile=upper_quantile)
-        return lower, upper
