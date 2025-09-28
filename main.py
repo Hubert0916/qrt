@@ -9,6 +9,12 @@ import matplotlib.ticker as mtick
 
 from models.quantile_regression_forest import QuantileRegressionForest
 from models.quantile_regression_tree import QuantileRegressionTree
+from models.qunatile_regression_model_leaf_tree import (
+    QuantileRegressionTree as LeafQuantileRegressionTree,
+)
+from models.qunatile_regression_model_node_tree import (
+    QuantileRegressionTree as NodeQuantileRegressionTree,
+)
 from utils.data_loader import rolling_time, load_data
 from utils.trading_strategy import trading_rule
 
@@ -27,7 +33,7 @@ parser.add_argument("--ql", type=float, default=0.3)
 parser.add_argument("--data", type=str,
                     default="data/esg_tfidf_with_return_cleaned.csv")
 parser.add_argument("--outdir", type=str, default="output/benchmark_split")
-parser.add_argument("--n_estimators", type=int, default=100)
+parser.add_argument("--n_estimators", type=int, default=50)
 parser.add_argument("--random_state", type=int, default=42)
 args = parser.parse_args()
 
@@ -50,7 +56,12 @@ def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) 
 
 # ----------------------------- Training ------------------------------- #
 SplitCriterion = ["loss", "mse", "r2"]
-ModelKinds = ["QRT", "QRF"]
+FOREST_VARIANTS: Dict[str, type] = {
+    "QRF": QuantileRegressionTree,
+    "QRF_leaf": LeafQuantileRegressionTree,
+    "QRF_node": NodeQuantileRegressionTree,
+}
+ModelKinds = ["QRT"] + list(FOREST_VARIANTS.keys())
 
 
 def quantile_dir_suffix(ql: float, qh: float) -> str:
@@ -111,6 +122,7 @@ def fit_predict_qrf(
     max_depth: int,
     min_samples_leaf: int,
     seed: int,
+    tree_cls,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Train a QRF and predict both quantiles (ql, qh)."""
     model_h = QuantileRegressionForest(
@@ -126,6 +138,7 @@ def fit_predict_qrf(
         include_oob=True,
         min_leaf_agg=8,
         random_state=seed,
+        tree_cls=tree_cls,
     )
     model_h.fit(X_train, y_train)
 
@@ -142,6 +155,7 @@ def fit_predict_qrf(
         include_oob=True,
         min_leaf_agg=8,
         random_state=seed,
+        tree_cls=tree_cls,
     )
     model_l.fit(X_train, y_train)
 
@@ -185,10 +199,12 @@ def run_benchmark(ql: float, qh: float, outdir: str) -> None:
                         X_train, y_train, X_test, crit, ql, qh,
                         args.max_depth, args.min_samples_leaf, x_cols, args.random_state
                     )
-                else:  # QRF
+                else:
+                    tree_cls = FOREST_VARIANTS[model_kind]
                     y_pred_l, y_pred_h = fit_predict_qrf(
                         X_train, y_train, X_test, crit, ql, qh,
-                        args.n_estimators, args.max_depth, args.min_samples_leaf, args.random_state
+                        args.n_estimators, args.max_depth, args.min_samples_leaf, args.random_state,
+                        tree_cls
                     )
 
                 # Metrics
@@ -226,8 +242,8 @@ def run_benchmark(ql: float, qh: float, outdir: str) -> None:
                 )
 
                 print(
-                    f"[{model_kind}/{crit}]  Pinball(q{round(ql*100):02d})={pl_ql:.4f}  "
-                    f"Pinball(q{round(qh*100):02d})={pl_qh:.4f}  "
+                    f"[{model_kind}/{crit}]  Pinball(ql_{round(ql*100):02d})={pl_ql:.4f}  "
+                    f"Pinball(qh_{round(qh*100):02d})={pl_qh:.4f}  "
                     f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}"
                 )
 

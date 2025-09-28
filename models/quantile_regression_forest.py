@@ -3,7 +3,7 @@
 Quantile Regression Forest
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Type, Union
 from collections import defaultdict
 
 import numpy as np
@@ -59,6 +59,7 @@ class QuantileRegressionForest:
         include_oob: bool = True,
         min_leaf_agg: int = 8,
         random_state: Optional[int] = None,
+        tree_cls: Type[QuantileRegressionTree] = QuantileRegressionTree,
     ):
         self.n_estimators = n_estimators
         self.quantile = quantile
@@ -72,6 +73,7 @@ class QuantileRegressionForest:
         self.include_oob = include_oob
         self.min_leaf_agg = min_leaf_agg
         self.random_state = random_state
+        self.tree_cls = tree_cls
 
         # Learned state.
         self.trees_: List[QuantileRegressionTree] = []
@@ -195,7 +197,7 @@ class QuantileRegressionForest:
             f_idx = [self.feature_names_.index(f) for f in feats]
 
             # Build the tree with lightweight configuration.
-            tree = QuantileRegressionTree(
+            tree = self.tree_cls(
                 split_criterion=self.split_criterion,
                 max_depth=self.max_depth,
                 min_samples_leaf=self.min_samples_leaf,
