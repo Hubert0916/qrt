@@ -23,6 +23,8 @@ def summarize_metrics(
             pinball=("pinball_sum", "mean"),
             coverage=("coverage", "mean"),
             cum_return=("cum_return", "mean"),
+            avg_return=("avg_return", "mean"),
+            annualized_return=("annualized_return", "mean"),
             n_windows=("window", "nunique"),
         )
     )
@@ -33,6 +35,8 @@ def summarize_metrics(
         "coverage",
         "calib_gap",
         "cum_return",
+        "avg_return",
+        "annualized_return",
         "n_windows",
     ]
     return grouped[ordered_cols]
@@ -64,7 +68,14 @@ def render_markdown_table(
     """Return a Markdown table with basic highlighting for best metrics."""
     df = summary.copy()
     group_cols = list(group_cols)
-    numeric_cols = ["pinball", "coverage", "calib_gap", "cum_return"]
+    numeric_cols = [
+        "pinball",
+        "coverage",
+        "calib_gap",
+        "cum_return",
+        "avg_return",
+        "annualized_return",
+    ]
     df[numeric_cols] = df[numeric_cols].astype(float)
     df["n_windows"] = df["n_windows"].astype(int)
 
@@ -74,6 +85,8 @@ def render_markdown_table(
         "coverage": 4,
         "calib_gap": 4,
         "cum_return": 2,
+        "avg_return": 4,
+        "annualized_return": 2,
     }
     for col in numeric_cols:
         digits = display_digits.get(col, 4)
@@ -83,6 +96,8 @@ def render_markdown_table(
     best_pinball = df["pinball"].astype(float).min()
     best_gap = df["calib_gap"].astype(float).min()
     best_cumret = df["cum_return"].astype(float).max()
+    best_avgret = df["avg_return"].astype(float).max()
+    best_annret = df["annualized_return"].astype(float).max()
 
     def highlight(series: pd.Series, target: float) -> pd.Series:
         return series.apply(
@@ -92,6 +107,8 @@ def render_markdown_table(
     df["pinball"] = highlight(df["pinball"], best_pinball)
     df["calib_gap"] = highlight(df["calib_gap"], best_gap)
     df["cum_return"] = highlight(df["cum_return"], best_cumret)
+    df["avg_return"] = highlight(df["avg_return"], best_avgret)
+    df["annualized_return"] = highlight(df["annualized_return"], best_annret)
 
     df.sort_values(group_cols, inplace=True)
 
@@ -102,6 +119,8 @@ def render_markdown_table(
         "coverage": f"Coverage (\u2192{coverage_target:.2f})",
         "calib_gap": "Calib. Gap (\u2193)",
         "cum_return": "Mean CumRet (\u2191)",
+        "avg_return": "Mean AvgRet (\u2191)",
+        "annualized_return": "Mean AnnRet (\u2191)",
         "n_windows": "nWindows",
     }
     existing_map = {k: v for k, v in rename_map.items() if k in df.columns}

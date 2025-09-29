@@ -45,6 +45,12 @@ def build_arg_parser() -> ArgumentParser:
     parser.add_argument("--n_estimators", type=int, default=100)
     parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument(
+        "--annualization-base",
+        type=float,
+        default=252.0,
+        help="Number of periods per year for annualizing returns (e.g., 252 for daily data).",
+    )
+    parser.add_argument(
         "--quantile-pairs",
         type=str,
         default="0.3:0.6,0.3:0.7,0.3:0.8",
@@ -256,7 +262,16 @@ def run_benchmark(
                 df_pred[f"pred_q{ql}"] = y_pred_l
                 df_pred[f"pred_q{qh}"] = y_pred_h
                 df_traded = trading_rule(df_pred, qh, ql)
-                cum_ret_final = float(df_traded["total_return"].iloc[-1])
+                n_periods = len(df_traded)
+                cum_ret_final = (
+                    float(df_traded["total_return"].iloc[-1]) if n_periods > 0 else 0.0
+                )
+                avg_return = float(df_traded["return"].mean()) if n_periods > 0 else 0.0
+
+                annualized_return = 0.0
+                base = float(args.annualization_base)
+                if n_periods > 0 and cum_ret_final > -1.0 and base > 0:
+                    annualized_return = (1.0 + cum_ret_final) ** (base / n_periods) - 1.0
 
                 records.append(
                     dict(
@@ -270,13 +285,16 @@ def run_benchmark(
                         pinball_sum=pl_ql + pl_qh,
                         coverage=cov,
                         cum_return=cum_ret_final,
+                        avg_return=avg_return,
+                        annualized_return=annualized_return,
                     )
                 )
 
                 print(
                     f"[{model_kind}/{crit}]  Pinball(ql_{round(ql*100):02d})={pl_ql:.4f}  "
                     f"Pinball(qh_{round(qh*100):02d})={pl_qh:.4f}  "
-                    f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}"
+                    f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}  "
+                    f"AvgRet={avg_return:.4f}  AnnRet={annualized_return:.4f}"
                 )
 
     metrics_df = pd.DataFrame.from_records(records)
@@ -309,6 +327,8 @@ def _write_plots(metrics_df: pd.DataFrame, ql: float, qh: float, outdir: str) ->
             pinball_sum=("pinball_sum", "mean"),
             coverage=("coverage", "mean"),
             cum_return=("cum_return", "mean"),
+            avg_return=("avg_return", "mean"),
+            annualized_return=("annualized_return", "mean"),
         )
         .reset_index()
     )
@@ -373,6 +393,41 @@ def _write_plots(metrics_df: pd.DataFrame, ql: float, qh: float, outdir: str) ->
     plt.tight_layout()
     plt.savefig(os.path.join(outdir, "03_cum_return_bar.png"), dpi=200)
     plt.close()
+
+    plt.figure(figsize=(12, 6))
+    ax = plt.gca()
+    ax.bar(x, agg["avg_return"])
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=30, ha="right")
+    ax.set_ylabel("Mean Average Return")
+    ax.set_title("Average Return per Trade")
+    ax.set_ylim(agg["avg_return"].min() * 0.95, agg["avg_return"].max() * 1.05)
+    add_bar_labels(ax, agg["avg_return"], fmt="{:.4f}")
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "03-1_avg_return_bar.png"), dpi=200)
+    plt.close()
+
+    plt.figure(figsize=(12, 6))
+    ax = plt.gca()
+    ax.bar(x, agg["annualized_return"])
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=30, ha="right")
+    ax.set_ylabel("Mean Annualized Return")
+    ax.set_title("Annualized Trading Performance")
+    ax.set_ylim(
+        agg["annualized_return"].min() * 0.95,
+        agg["annualized_return"].max() * 1.05,
+    )
+    add_bar_labels(ax, agg["annualized_return"], fmt="{:.2f}")
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "04_annualized_return_bar.png"), dpi=200)
+    plt.close()
+
+
+def ensure_subdir(base: str, sub: str) -> str:
+    path = os.path.join(base, sub)
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def run_quantile_sweep(args: Namespace, model_kinds: Iterable[str]) -> None:
