@@ -9,12 +9,10 @@ import matplotlib.ticker as mtick
 
 from models.quantile_regression_forest import QuantileRegressionForest
 from models.quantile_regression_tree import QuantileRegressionTree
-from models.qunatile_regression_model_leaf_tree import (
-    QuantileRegressionTree as LeafQuantileRegressionTree,
-)
-from models.qunatile_regression_model_node_tree import (
-    QuantileRegressionTree as NodeQuantileRegressionTree,
-)
+from models.qunatile_regression_model_leaf_tree import LeafQuantileRegressionTree
+
+from models.qunatile_regression_model_node_tree import NodeQuantileRegressionTree
+
 from utils.data_loader import rolling_time, load_data
 from utils.trading_strategy import trading_rule
 

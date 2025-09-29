@@ -28,7 +28,7 @@ class _Node:
     indices: Optional[np.ndarray] = None  # Index view into the training set.
 
 
-class QuantileRegressionTree:
+class NodeQuantileRegressionTree:
     """
     Quantile regression tree supporting three splitting criteria.
 
@@ -88,8 +88,8 @@ class QuantileRegressionTree:
         self._rng = np.random.default_rng(random_state)
 
         # Interval trees for predict_interval().
-        self.lower_tree: Optional["QuantileRegressionTree"] = None
-        self.upper_tree: Optional["QuantileRegressionTree"] = None
+        self.lower_tree: Optional["NodeQuantileRegressionTree"] = None
+        self.upper_tree: Optional["NodeQuantileRegressionTree"] = None
 
     # ------------------------------ Utilities -------------------------------- #
 
@@ -631,8 +631,8 @@ class QuantileRegressionTree:
             raise ValueError("Quantiles must satisfy 0 < lower < upper < 1")
 
         # Helper to clone configuration.
-        def new_tree() -> "QuantileRegressionTree":
-            return QuantileRegressionTree(
+        def new_tree() -> "NodeQuantileRegressionTree":
+            return NodeQuantileRegressionTree(
                 split_criterion=self.split_criterion,
                 max_depth=self.max_depth,
                 min_samples_leaf=self.min_samples_leaf,
