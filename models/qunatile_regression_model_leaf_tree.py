@@ -56,7 +56,7 @@ class LeafQuantileRegressionTree:
     def __init__(
         self,
         split_criterion: str = "loss",
-        max_depth: int = 5,
+        max_depth: int = 3,
         min_samples_leaf: int = 1,
         feature_names: Optional[List[str]] = None,
         random_state: Optional[int] = None,

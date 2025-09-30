@@ -42,7 +42,7 @@ def build_arg_parser() -> ArgumentParser:
         type=str,
         default="output/benchmark_split",
     )
-    parser.add_argument("--n_estimators", type=int, default=100)
+    parser.add_argument("--n_estimators", type=int, default=50)
     parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument(
         "--annualization-base",
@@ -53,7 +53,7 @@ def build_arg_parser() -> ArgumentParser:
     parser.add_argument(
         "--quantile-pairs",
         type=str,
-        default="0.3:0.6,0.3:0.7,0.3:0.8",
+        default="0.3:0.7",
         help="Comma separated list of ql:qh pairs to evaluate.",
     )
     return parser
@@ -74,10 +74,17 @@ def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) 
 
 
 SplitCriterion = ["loss", "mse", "r2"]
+
+TREE_VARIANTS: Dict[str, type] = {
+    "QRT": QuantileRegressionTree,
+    "QRT_leaf": LeafQuantileRegressionTree,
+    # "QRT_node": NodeQuantileRegressionTree,
+}
+
 FOREST_VARIANTS: Dict[str, type] = {
     "QRF": QuantileRegressionTree,
     "QRF_leaf": LeafQuantileRegressionTree,
-    "QRF_node": NodeQuantileRegressionTree,
+    # "QRF_node": NodeQuantileRegressionTree,
 }
 
 
@@ -115,8 +122,9 @@ def fit_predict_qrt(
     min_samples_leaf: int,
     feature_names: List[str],
     seed: int,
+    tree_cls,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    model_l = QuantileRegressionTree(
+    model_l = tree_cls(
         split_criterion=criterion,
         max_depth=max_depth,
         min_samples_leaf=min_samples_leaf,
@@ -128,7 +136,7 @@ def fit_predict_qrt(
     )
     model_l.fit(X_train, y_train, ql)
 
-    model_h = QuantileRegressionTree(
+    model_h = tree_cls(
         split_criterion=criterion,
         max_depth=max_depth,
         min_samples_leaf=min_samples_leaf,
@@ -225,7 +233,8 @@ def run_benchmark(
 
         for model_kind in model_kinds:
             for crit in SplitCriterion:
-                if model_kind == "QRT":
+                if model_kind in TREE_VARIANTS:
+                    tree_cls = TREE_VARIANTS[model_kind]
                     y_pred_l, y_pred_h = fit_predict_qrt(
                         X_train,
                         y_train,
@@ -237,8 +246,9 @@ def run_benchmark(
                         args.min_samples_leaf,
                         x_cols,
                         args.random_state,
+                        tree_cls,
                     )
-                else:
+                elif model_kind in FOREST_VARIANTS:
                     tree_cls = FOREST_VARIANTS[model_kind]
                     y_pred_l, y_pred_h = fit_predict_qrf(
                         X_train,
@@ -253,6 +263,8 @@ def run_benchmark(
                         args.random_state,
                         tree_cls,
                     )
+                else:
+                    raise ValueError(f"Unknown model kind: {model_kind}")
 
                 pl_ql = pinball_loss(y_test.values, y_pred_l, ql)
                 pl_qh = pinball_loss(y_test.values, y_pred_h, qh)
