@@ -1,9 +1,8 @@
-"""Shared benchmarking utilities for QRT/QRF evaluations."""
-
 from __future__ import annotations
 
 import os
 from argparse import ArgumentParser, Namespace
+from functools import partial
 from typing import Dict, Iterable, List, Tuple
 
 import matplotlib.pyplot as plt
@@ -11,7 +10,10 @@ import matplotlib.ticker as mtick
 import numpy as np
 import pandas as pd
 
-from models.quantile_regression_forest import QuantileRegressionForest
+from models.quantile_regression_forest import (
+    AveragingQuantileRegressionForest,
+    QuantileRegressionForest,
+)
 from models.quantile_regression_tree import QuantileRegressionTree
 from utils.data_loader import load_data, rolling_time
 from utils.trading_strategy import trading_rule
@@ -42,7 +44,7 @@ def build_arg_parser() -> ArgumentParser:
         type=str,
         default="output/benchmark_split",
     )
-    parser.add_argument("--n_estimators", type=int, default=50)
+    parser.add_argument("--n_estimators", type=int, default=100)
     parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument(
         "--annualization-base",
@@ -82,8 +84,18 @@ TREE_VARIANTS: Dict[str, type] = {
 }
 
 FOREST_VARIANTS: Dict[str, type] = {
-    "QRF": QuantileRegressionTree,
-    "QRF_leaf": LeafQuantileRegressionTree,
+    "QRF_loss": partial(QuantileRegressionForest, split_criterion="loss"),
+    "QRF_mse": partial(QuantileRegressionForest, split_criterion="mse"),
+    "QRF_r2": partial(QuantileRegressionForest, split_criterion="r2"),
+    "AveragingQRF_loss": partial(
+        AveragingQuantileRegressionForest, split_criterion="loss"
+    ),
+    "AveragingQRF_mse": partial(
+        AveragingQuantileRegressionForest, split_criterion="mse"
+    ),
+    "AveragingQRF_r2": partial(
+        AveragingQuantileRegressionForest, split_criterion="r2"
+    ),
 }
 
 
@@ -152,19 +164,17 @@ def fit_predict_qrf(
     X_train: pd.DataFrame,
     y_train: pd.Series,
     X_test: pd.DataFrame,
-    criterion: str,
     ql: float,
     qh: float,
     n_estimators: int,
     max_depth: int,
     min_samples_leaf: int,
     seed: int,
-    tree_cls,
+    model_cls: partial,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    model_h = QuantileRegressionForest(
+    model_h = model_cls(
         n_estimators=n_estimators,
         quantile=qh,
-        split_criterion=criterion,
         max_depth=max_depth,
         min_samples_leaf=min_samples_leaf,
         bootstrap=True,
@@ -172,14 +182,12 @@ def fit_predict_qrf(
         max_threshold_candidates=128,
         random_thresholds=False,
         random_state=seed,
-        tree_cls=tree_cls,
     )
     model_h.fit(X_train, y_train)
 
-    model_l = QuantileRegressionForest(
+    model_l = model_cls(
         n_estimators=n_estimators,
         quantile=ql,
-        split_criterion=criterion,
         max_depth=max_depth,
         min_samples_leaf=min_samples_leaf,
         bootstrap=True,
@@ -187,7 +195,6 @@ def fit_predict_qrf(
         max_threshold_candidates=128,
         random_thresholds=False,
         random_state=seed,
-        tree_cls=tree_cls,
     )
     model_l.fit(X_train, y_train)
 
@@ -223,8 +230,9 @@ def run_benchmark(
         X_test, y_test = test_df[x_cols], test_df["報酬率"]
 
         for model_kind in model_kinds:
-            for crit in SplitCriterion:
-                if model_kind in TREE_VARIANTS:
+            # For trees, we iterate through criteria explicitly.
+            if model_kind in TREE_VARIANTS:
+                for crit in SplitCriterion:
                     tree_cls = TREE_VARIANTS[model_kind]
                     y_pred_l, y_pred_h = fit_predict_qrt(
                         X_train,
@@ -239,71 +247,83 @@ def run_benchmark(
                         args.random_state,
                         tree_cls,
                     )
-                elif model_kind in FOREST_VARIANTS:
-                    tree_cls = FOREST_VARIANTS[model_kind]
-                    y_pred_l, y_pred_h = fit_predict_qrf(
-                        X_train,
-                        y_train,
-                        X_test,
-                        crit,
-                        ql,
-                        qh,
-                        args.n_estimators,
-                        args.max_depth,
-                        args.min_samples_leaf,
-                        args.random_state,
-                        tree_cls,
+                    # Record metrics for this tree variant
+                    record_and_print_metrics(
+                        records, win, ql, qh, model_kind, crit, y_test, y_pred_l, y_pred_h, test_df, args
                     )
-                else:
-                    raise ValueError(f"Unknown model kind: {model_kind}")
 
-                pl_ql = pinball_loss(y_test.values, y_pred_l, ql)
-                pl_qh = pinball_loss(y_test.values, y_pred_h, qh)
-                cov = coverage_rate(y_test.values, y_pred_l, y_pred_h)
-
-                df_pred = test_df.copy()
-                df_pred[f"pred_q{ql}"] = y_pred_l
-                df_pred[f"pred_q{qh}"] = y_pred_h
-                df_traded = trading_rule(df_pred, qh, ql)
-                n_periods = len(df_traded)
-                cum_ret_final = (
-                    float(df_traded["total_return"].iloc[-1]) if n_periods > 0 else 0.0
+            # For forests, the criterion is baked into the model_kind name.
+            elif model_kind in FOREST_VARIANTS:
+                model_cls = FOREST_VARIANTS[model_kind]
+                crit = model_kind.split("_")[-1]
+                y_pred_l, y_pred_h = fit_predict_qrf(
+                    X_train,
+                    y_train,
+                    X_test,
+                    ql,
+                    qh,
+                    args.n_estimators,
+                    args.max_depth,
+                    args.min_samples_leaf,
+                    args.random_state,
+                    model_cls,
                 )
-                avg_return = float(df_traded["return"].mean()) if n_periods > 0 else 0.0
-
-                annualized_return = 0.0
-                base = float(args.annualization_base)
-                if n_periods > 0 and cum_ret_final > -1.0 and base > 0:
-                    annualized_return = (1.0 + cum_ret_final) ** (base / n_periods) - 1.0
-
-                records.append(
-                    dict(
-                        window=win + 1,
-                        ql=ql,
-                        qh=qh,
-                        model=model_kind,
-                        criterion=crit,
-                        pinball_ql=pl_ql,
-                        pinball_qh=pl_qh,
-                        pinball_sum=pl_ql + pl_qh,
-                        coverage=cov,
-                        cum_return=cum_ret_final,
-                        avg_return=avg_return,
-                        annualized_return=annualized_return,
-                    )
+                # Record metrics for this forest variant
+                record_and_print_metrics(
+                    records, win, ql, qh, model_kind, crit, y_test, y_pred_l, y_pred_h, test_df, args
                 )
-
-                print(
-                    f"[{model_kind}/{crit}]  Pinball(ql_{round(ql*100):02d})={pl_ql:.4f}  "
-                    f"Pinball(qh_{round(qh*100):02d})={pl_qh:.4f}  "
-                    f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}  "
-                    f"AvgRet={avg_return:.4f}  AnnRet={annualized_return:.4f}"
-                )
+            else:
+                raise ValueError(f"Unknown model kind: {model_kind}")
 
     metrics_df = pd.DataFrame.from_records(records)
     metrics_df.to_csv(os.path.join(outdir, "metrics.csv"), index=False)
     _write_plots(metrics_df, ql, qh, outdir)
     return metrics_df
+
+
+def record_and_print_metrics(records, win, ql, qh, model_kind, crit, y_test, y_pred_l, y_pred_h, test_df, args):
+    pl_ql = pinball_loss(y_test.values, y_pred_l, ql)
+    pl_qh = pinball_loss(y_test.values, y_pred_h, qh)
+    cov = coverage_rate(y_test.values, y_pred_l, y_pred_h)
+
+    df_pred = test_df.copy()
+    df_pred[f"pred_q{ql}"] = y_pred_l
+    df_pred[f"pred_q{qh}"] = y_pred_h
+    df_traded = trading_rule(df_pred, qh, ql)
+    n_periods = len(df_traded)
+    cum_ret_final = (
+        float(df_traded["total_return"].iloc[-1]) if n_periods > 0 else 0.0
+    )
+    avg_return = float(df_traded["return"].mean()) if n_periods > 0 else 0.0
+
+    annualized_return = 0.0
+    base = float(args.annualization_base)
+    if n_periods > 0 and cum_ret_final > -1.0 and base > 0:
+        annualized_return = (1.0 + cum_ret_final) ** (base / n_periods) - 1.0
+
+    records.append(
+        dict(
+            window=win + 1,
+            ql=ql,
+            qh=qh,
+            model=model_kind,
+            criterion=crit,
+            pinball_ql=pl_ql,
+            pinball_qh=pl_qh,
+            pinball_sum=pl_ql + pl_qh,
+            coverage=cov,
+            cum_return=cum_ret_final,
+            avg_return=avg_return,
+            annualized_return=annualized_return,
+        )
+    )
+
+    print(
+        f"[{model_kind}/{crit}]  Pinball(ql_{round(ql*100):02d})={pl_ql:.4f}  "
+        f"Pinball(qh_{round(qh*100):02d})={pl_qh:.4f}  "
+        f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}  "
+        f"AvgRet={avg_return:.4f}  AnnRet={annualized_return:.4f}"
+    )
 
 
 def _write_plots(metrics_df: pd.DataFrame, ql: float, qh: float, outdir: str) -> None:
@@ -337,7 +357,7 @@ def _write_plots(metrics_df: pd.DataFrame, ql: float, qh: float, outdir: str) ->
     )
     agg = agg.sort_values("pinball_sum", ascending=True)
 
-    labels = [f"{m}/{c}" for m, c in zip(agg["model"], agg["criterion"])]
+    labels = [f"{m}/{c}" for m, c in zip(agg["model"], agg["criterion"]) ]
     x = np.arange(len(labels))
 
     plt.figure(figsize=(12, 6))
