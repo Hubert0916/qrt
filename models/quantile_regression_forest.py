@@ -71,6 +71,10 @@ class LeafAggregatingQRF:
 
         # Learned state.
         self.trees_: List[QuantileRegressionTree] = []
+        # For each tree, a mapping: leaf_id -> list of y values (in-bag + OOB).
+        self.leaf_values_: List[Dict[int, List[float]]] = []
+        # Global fallback quantile used if per-sample aggregation is too small.
+        self._fallback_quantile: Optional[float] = None
         # Feature names for external arrays.
         self.feature_names_: List[str] = []
         # RNG for bootstrapping and feature subspace selection.
