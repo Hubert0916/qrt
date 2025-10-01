@@ -28,7 +28,7 @@ def build_arg_parser() -> ArgumentParser:
     )
     parser.add_argument("--train_period", type=int, default=5)
     parser.add_argument("--test_period", type=int, default=1)
-    parser.add_argument("--max_depth", type=int, default=5)
+    parser.add_argument("--max_depth", type=int, default=3)
     parser.add_argument("--min_samples_leaf", type=int, default=5)
     parser.add_argument("--qh", type=float, default=0.7)
     parser.add_argument("--ql", type=float, default=0.3)
@@ -42,7 +42,7 @@ def build_arg_parser() -> ArgumentParser:
         type=str,
         default="output/benchmark_split",
     )
-    parser.add_argument("--n_estimators", type=int, default=2)
+    parser.add_argument("--n_estimators", type=int, default=50)
     parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument(
         "--annualization-base",
@@ -76,8 +76,8 @@ def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) 
 SplitCriterion = ["mse", "loss", "r2"]
 
 TREE_VARIANTS: Dict[str, type] = {
-    # "QRT": QuantileRegressionTree,
-    # "QRT_leaf": LeafQuantileRegressionTree,
+    "QRT": QuantileRegressionTree,
+    "QRT_leaf": LeafQuantileRegressionTree,
     # "QRT_node": NodeQuantileRegressionTree,
 }
 
@@ -171,8 +171,6 @@ def fit_predict_qrf(
         max_features="sqrt",
         max_threshold_candidates=128,
         random_thresholds=False,
-        include_oob=True,
-        min_leaf_agg=8,
         random_state=seed,
         tree_cls=tree_cls,
     )
@@ -188,8 +186,6 @@ def fit_predict_qrf(
         max_features="sqrt",
         max_threshold_candidates=128,
         random_thresholds=False,
-        include_oob=True,
-        min_leaf_agg=8,
         random_state=seed,
         tree_cls=tree_cls,
     )

@@ -3,8 +3,7 @@
 Quantile Regression Forest
 """
 
-from typing import Dict, List, Optional, Type, Union
-from collections import defaultdict
+from typing import List, Optional, Type, Union
 
 import numpy as np
 import pandas as pd
@@ -14,7 +13,7 @@ from .quantile_regression_tree import QuantileRegressionTree
 
 class QuantileRegressionForest:
     """
-    Ensemble of QuantileRegressionTree with per-leaf sample aggregation.
+    Traditional Random Forest ensemble with tree prediction averaging.
 
     Parameters
     ----------
@@ -36,11 +35,6 @@ class QuantileRegressionForest:
         Cap on thresholds evaluated per feature (efficiency/quality trade-off).
     random_thresholds : bool, default=False
         If True, subsample thresholds randomly; else select deterministically.
-    include_oob : bool, default=True
-        If True and bootstrap=True, enrich leaf sample bags with OOB samples.
-    min_leaf_agg : int, default=8
-        Minimum total samples required across leaves when aggregating a
-        prediction; otherwise use global fallback quantile.
     random_state : int, optional
         Base RNG seed; each tree is offset by its index for reproducibility.
     """
@@ -56,8 +50,6 @@ class QuantileRegressionForest:
         max_features: Union[int, str, None] = "sqrt",
         max_threshold_candidates: int = 128,
         random_thresholds: bool = False,
-        include_oob: bool = True,
-        min_leaf_agg: int = 8,
         random_state: Optional[int] = None,
         tree_cls: Type[QuantileRegressionTree] = QuantileRegressionTree,
     ):
@@ -70,17 +62,11 @@ class QuantileRegressionForest:
         self.max_features = max_features
         self.max_threshold_candidates = max_threshold_candidates
         self.random_thresholds = random_thresholds
-        self.include_oob = include_oob
-        self.min_leaf_agg = min_leaf_agg
         self.random_state = random_state
         self.tree_cls = tree_cls
 
         # Learned state.
         self.trees_: List[QuantileRegressionTree] = []
-        # For each tree, a mapping: leaf_id -> list of y values (in-bag + OOB).
-        self.leaf_values_: List[Dict[int, List[float]]] = []
-        # Global fallback quantile used if per-sample aggregation is too small.
-        self._fallback_quantile: Optional[float] = None
         # Feature names for external arrays.
         self.feature_names_: List[str] = []
         # RNG for bootstrapping and feature subspace selection.
@@ -106,44 +92,7 @@ class QuantileRegressionForest:
             return feature_names
         return self._rng.choice(feature_names, size=k, replace=False).tolist()
 
-    def _get_leaf_node(self, tree: QuantileRegressionTree, x: np.ndarray) -> int:
-        """
-        Route a single sample to a leaf node ID using the stored split structure.
 
-        Notes
-        -----
-        This mirrors the tree's predict path but returns the terminal node ID
-        instead of a prediction. If a feature is missing or an inconsistency is
-        encountered, we break and return the last reachable node.
-        """
-        node_id = 0
-        while node_id in tree.children_map:
-            children = tree.children_map.get(node_id, [])
-            if not children:
-                break
-            feat = children[0]["feature_name"]
-            try:
-                fidx = self.feature_names_.index(feat)
-                v = float(x[fidx])
-            except (ValueError, IndexError):
-                # Missing feature or index mismatch; stop traversal gracefully.
-                break
-
-            nxt = None
-            for ch in children:
-                thr = ch["numeric_threshold"]
-                if ch["condition"] == "<" and v < thr:
-                    nxt = ch["node_id"]
-                    break
-                if ch["condition"] == ">=" and v >= thr:
-                    nxt = ch["node_id"]
-                    break
-
-            if nxt is None:
-                # No child condition matched; stop at current node.
-                break
-            node_id = nxt
-        return node_id
 
     # --------------------------------------------------------------------- #
     # Fit / Predict
@@ -155,7 +104,7 @@ class QuantileRegressionForest:
         y: Union[pd.Series, np.ndarray],
     ):
         """
-        Train the forest and cache per-leaf sample bags (with optional OOB).
+        Train the forest using traditional bagging approach.
 
         Parameters
         ----------
@@ -170,7 +119,6 @@ class QuantileRegressionForest:
             Fitted estimator.
         """
         self.trees_.clear()
-        self.leaf_values_.clear()
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_ = X.columns.tolist()
@@ -182,7 +130,6 @@ class QuantileRegressionForest:
         y_np = np.asarray(y)
 
         n = X_np.shape[0]
-        self._fallback_quantile = float(np.quantile(y_np, self.quantile))
 
         for i in range(self.n_estimators):
             # Bootstrap sampling (bagging).
@@ -212,26 +159,6 @@ class QuantileRegressionForest:
             tree.fit(X_bag[:, f_idx], y_bag, quantile=self.quantile)
             self.trees_.append(tree)
 
-            # Aggregate in-bag samples per leaf.
-            leaf_ids = np.array([self._get_leaf_node(tree, x) for x in X_bag])
-            mp = defaultdict(list)
-            for lid, yi in zip(leaf_ids, y_bag):
-                mp[lid].append(float(yi))
-
-            # Optional OOB enrichment: push unseen samples through this tree.
-            if self.include_oob and self.bootstrap:
-                oob_mask = np.ones(n, dtype=bool)
-                oob_mask[idx] = False
-                X_oob = X_np[oob_mask]
-                y_oob = y_np[oob_mask]
-                if X_oob.size:
-                    for x, yi in zip(X_oob, y_oob):
-                        lid = self._get_leaf_node(tree, x)
-                        mp[lid].append(float(yi))
-
-            # Freeze the mapping for this tree.
-            self.leaf_values_.append(dict(mp))
-
         return self
 
     def predict(
@@ -240,7 +167,7 @@ class QuantileRegressionForest:
         quantile: Optional[float] = None,
     ) -> np.ndarray:
         """
-        Predict the requested quantile by aggregating per-tree leaf samples.
+        Predict by averaging individual tree predictions.
 
         Parameters
         ----------
@@ -252,31 +179,27 @@ class QuantileRegressionForest:
         Returns
         -------
         np.ndarray, shape (n_samples,)
-            Predicted quantiles.
+            Predicted values (average of tree predictions).
         """
         if quantile is None:
             quantile = self.quantile
 
-        X_np = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
-        preds: List[float] = []
+        if isinstance(X, pd.DataFrame):
+            X_df = X
+        else:
+            X_df = pd.DataFrame(X, columns=self.feature_names_)
 
-        for x in X_np:
-            bag: List[float] = []
+        # Collect predictions from all trees
+        all_predictions = []
+        for tree in self.trees_:
+            # Only use the features this tree was trained on
+            tree_features = tree.feature_names if hasattr(tree, 'feature_names') else self.feature_names_
+            X_tree = X_df[tree_features]
+            tree_preds = tree.predict(X_tree)
+            all_predictions.append(tree_preds)
 
-            # NOTE: We intentionally compute a leaf ID per tree for `x`, then
-            # read the cached sample bag for that leaf from `leaf_values_`.
-            # This keeps predict() memory-light while benefiting from OOB bags.
-            for tree, leaf_map in zip(self.trees_, self.leaf_values_):
-                lid = self._get_leaf_node(tree, x)
-                values = leaf_map.get(lid)
-                if values:
-                    bag.extend(values)
-
-            if len(bag) >= self.min_leaf_agg:
-                preds.append(
-                    float(np.quantile(np.asarray(bag, dtype=float), quantile)))
-            else:
-                # Fall back to global quantile if local bag is too small.
-                preds.append(self._fallback_quantile)
-
-        return np.asarray(preds, dtype=float)
+        # Average the predictions
+        all_predictions = np.array(all_predictions)  # Shape: (n_trees, n_samples)
+        avg_predictions = np.mean(all_predictions, axis=0)
+        
+        return avg_predictions
