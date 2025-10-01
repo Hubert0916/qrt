@@ -54,8 +54,10 @@ class LeafAggregatingQRF:
         max_features: Union[int, str, None] = "sqrt",
         max_threshold_candidates: int = 128,
         random_thresholds: bool = False,
+        include_oob: bool = True,
+        min_leaf_agg: int = 8,
         random_state: Optional[int] = None,
-        tree_cls: Type[QuantileRegressionTree] = QuantileRegressionTree,  # for different tree implementations
+        tree_cls: Type[QuantileRegressionTree] = QuantileRegressionTree,
     ):
         self.n_estimators = n_estimators
         self.quantile = quantile
@@ -66,6 +68,8 @@ class LeafAggregatingQRF:
         self.max_features = max_features
         self.max_threshold_candidates = max_threshold_candidates
         self.random_thresholds = random_thresholds
+        self.include_oob = include_oob
+        self.min_leaf_agg = min_leaf_agg
         self.random_state = random_state
         self.tree_cls = tree_cls
 
