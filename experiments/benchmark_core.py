@@ -42,7 +42,7 @@ def build_arg_parser() -> ArgumentParser:
         type=str,
         default="output/benchmark_split",
     )
-    parser.add_argument("--n_estimators", type=int, default=10)
+    parser.add_argument("--n_estimators", type=int, default=2)
     parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument(
         "--annualization-base",
@@ -76,8 +76,8 @@ def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) 
 SplitCriterion = ["mse", "loss", "r2"]
 
 TREE_VARIANTS: Dict[str, type] = {
-    "QRT": QuantileRegressionTree,
-    "QRT_leaf": LeafQuantileRegressionTree,
+    # "QRT": QuantileRegressionTree,
+    # "QRT_leaf": LeafQuantileRegressionTree,
     # "QRT_node": NodeQuantileRegressionTree,
 }
 
