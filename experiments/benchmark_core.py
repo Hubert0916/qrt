@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 
 from models.quantile_regression_forest import (
-    AveragingQuantileRegressionForest,
-    QuantileRegressionForest,
+    PredictionAveragingQRF,
+    LeafAggregatingQRF,
 )
 from models.quantile_regression_tree import QuantileRegressionTree
 from utils.data_loader import load_data, rolling_time
@@ -84,17 +84,20 @@ TREE_VARIANTS: Dict[str, type] = {
 }
 
 FOREST_VARIANTS: Dict[str, type] = {
-    "QRF_loss": partial(QuantileRegressionForest, split_criterion="loss"),
-    "QRF_mse": partial(QuantileRegressionForest, split_criterion="mse"),
-    "QRF_r2": partial(QuantileRegressionForest, split_criterion="r2"),
+    "QRF_loss": partial(LeafAggregatingQRF, split_criterion="loss"),
+    "QRF_mse": partial(LeafAggregatingQRF, split_criterion="mse"),
+    "QRF_r2": partial(LeafAggregatingQRF, split_criterion="r2"),
+    "QRF_leaf_loss": partial(LeafAggregatingQRF, split_criterion="loss", tree_cls=LeafQuantileRegressionTree),
+    "QRF_leaf_mse": partial(LeafAggregatingQRF, split_criterion="mse", tree_cls=LeafQuantileRegressionTree),
+    "QRF_leaf_r2": partial(LeafAggregatingQRF, split_criterion="r2", tree_cls=LeafQuantileRegressionTree),
     "AveragingQRF_loss": partial(
-        AveragingQuantileRegressionForest, split_criterion="loss"
+        PredictionAveragingQRF, split_criterion="loss"
     ),
     "AveragingQRF_mse": partial(
-        AveragingQuantileRegressionForest, split_criterion="mse"
+        PredictionAveragingQRF, split_criterion="mse"
     ),
     "AveragingQRF_r2": partial(
-        AveragingQuantileRegressionForest, split_criterion="r2"
+        PredictionAveragingQRF, split_criterion="r2"
     ),
 }
 

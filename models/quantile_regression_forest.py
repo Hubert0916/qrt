@@ -11,7 +11,7 @@ import pandas as pd
 from .quantile_regression_tree import QuantileRegressionTree
 
 
-class QuantileRegressionForest:
+class LeafAggregatingQRF:
     """
     Ensemble of QuantileRegressionTree with per-leaf sample aggregation.
 
@@ -213,7 +213,7 @@ class QuantileRegressionForest:
         return np.asarray(preds, dtype=float)
 
 
-class AveragingQuantileRegressionForest(QuantileRegressionForest):
+class PredictionAveragingQRF(LeafAggregatingQRF):
     """
     Ensemble of QuantileRegressionTree that averages per-tree predictions.
 
@@ -222,7 +222,7 @@ class AveragingQuantileRegressionForest(QuantileRegressionForest):
     This makes the forest's output sensitive to the `split_criterion` of
     the underlying trees.
 
-    Inherits most parameters from QuantileRegressionForest but overrides
+    Inherits most parameters from LeafAggregatingQRF but overrides
     the `fit` and `predict` methods.
     """
 
