@@ -26,7 +26,7 @@ def build_arg_parser() -> ArgumentParser:
     parser = ArgumentParser(
         description="Benchmark QRT variants under different split criteria and quantile bands.",
     )
-    parser.add_argument("--train_period", type=int, default=5)
+    parser.add_argument("--train_period", type=int, default=4)
     parser.add_argument("--test_period", type=int, default=1)
     parser.add_argument("--max_depth", type=int, default=5)
     parser.add_argument("--min_samples_leaf", type=int, default=10)
@@ -78,13 +78,12 @@ SplitCriterion = ["loss", "mse", "r2"]
 TREE_VARIANTS: Dict[str, type] = {
     "QRT": QuantileRegressionTree,
     "QRT_leaf": LeafQuantileRegressionTree,
-    # "QRT_node": NodeQuantileRegressionTree,
+    "QRT_node": NodeQuantileRegressionTree,
 }
 
 FOREST_VARIANTS: Dict[str, type] = {
     "QRF": QuantileRegressionTree,
     "QRF_leaf": LeafQuantileRegressionTree,
-    # "QRF_node": NodeQuantileRegressionTree,
 }
 
 
@@ -180,8 +179,6 @@ def fit_predict_qrf(
         min_leaf_agg=8,
         random_state=seed,
         tree_cls=tree_cls,
-        n_jobs=-1,
-        verbose=True,
     )
     model_h.fit(X_train, y_train)
 
@@ -199,8 +196,6 @@ def fit_predict_qrf(
         min_leaf_agg=8,
         random_state=seed,
         tree_cls=tree_cls,
-        n_jobs=-1,
-        verbose=True,
     )
     model_l.fit(X_train, y_train)
 

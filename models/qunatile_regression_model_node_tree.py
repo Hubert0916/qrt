@@ -57,12 +57,12 @@ class NodeQuantileRegressionTree:
         self,
         split_criterion: str = "loss",
         max_depth: int = 5,
-        min_samples_leaf: int = 1,
+        min_samples_leaf: int = 10,
         feature_names: Optional[List[str]] = None,
         random_state: Optional[int] = None,
-        random_features: bool = False,
-        random_thresholds: bool = False,
-        max_threshold_candidates: Optional[int] = None,
+        random_features: bool = True,
+        random_thresholds: bool = True,
+        max_threshold_candidates: Optional[int] = 10,
     ) -> None:
         if split_criterion not in {"r2", "loss", "mse"}:
             raise ValueError("split_criterion must be 'r2', 'loss', or 'mse'")
@@ -284,6 +284,7 @@ class NodeQuantileRegressionTree:
                     replace=False,
                 )
                 cut_positions.sort()
+                # print(f"cut_positions size: {len(cut_positions)}")
             else:
                 # Uniform stride selection for determinism.
                 stride = max(1, cut_positions.size //
@@ -398,7 +399,8 @@ class NodeQuantileRegressionTree:
         best_thr: Optional[float] = None
 
         for f in features:
-            print(f"Evaluating feature {f}...")
+            # print(len(features))
+            # print(f"Evaluating feature {f}...")
             thr, score = self._best_split_for_feature(f, idx, quantile)
             if thr is None:
                 continue
@@ -476,7 +478,6 @@ class NodeQuantileRegressionTree:
         self.node_models.clear()
 
         while q:
-            print("Nodes in queue:", len(q))
             node = q.popleft()
             idx = node.indices
             depth = node.depth
