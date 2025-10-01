@@ -76,8 +76,8 @@ def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) 
 SplitCriterion = ["loss", "mse", "r2"]
 
 TREE_VARIANTS: Dict[str, type] = {
-    # "QRT": QuantileRegressionTree,
-    # "QRT_leaf": LeafQuantileRegressionTree,
+    "QRT": QuantileRegressionTree,
+    "QRT_leaf": LeafQuantileRegressionTree,
     "QRT_node": NodeQuantileRegressionTree,
 }
 
