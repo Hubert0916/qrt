@@ -3,7 +3,8 @@
 Quantile Regression Forest
 """
 
-from typing import List, Optional, Type, Union
+from typing import Dict, List, Optional, Type, Union
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -11,7 +12,7 @@ import pandas as pd
 from .quantile_regression_tree import QuantileRegressionTree
 
 
-class LeafAggregatingQRF:
+class QuantileRegressionForest:
     """
     Ensemble of QuantileRegressionTree with per-leaf sample aggregation.
 
@@ -39,6 +40,11 @@ class LeafAggregatingQRF:
         Cap on thresholds evaluated per feature (efficiency/quality trade-off).
     random_thresholds : bool, default=False
         If True, subsample thresholds randomly; else select deterministically.
+    include_oob : bool, default=True
+        If True and bootstrap=True, enrich leaf sample bags with OOB samples.
+    min_leaf_agg : int, default=8
+        Minimum total samples required across leaves when aggregating a
+        prediction; otherwise use global fallback quantile.
     random_state : int, optional
         Base RNG seed; each tree is offset by its index for reproducibility.
     """
@@ -104,7 +110,44 @@ class LeafAggregatingQRF:
             return feature_names
         return self._rng.choice(feature_names, size=k, replace=False).tolist()
 
+    def _get_leaf_node(self, tree: QuantileRegressionTree, x: np.ndarray) -> int:
+        """
+        Route a single sample to a leaf node ID using the stored split structure.
 
+        Notes
+        -----
+        This mirrors the tree's predict path but returns the terminal node ID
+        instead of a prediction. If a feature is missing or an inconsistency is
+        encountered, we break and return the last reachable node.
+        """
+        node_id = 0
+        while node_id in tree.children_map:
+            children = tree.children_map.get(node_id, [])
+            if not children:
+                break
+            feat = children[0]["feature_name"]
+            try:
+                fidx = self.feature_names_.index(feat)
+                v = float(x[fidx])
+            except (ValueError, IndexError):
+                # Missing feature or index mismatch; stop traversal gracefully.
+                break
+
+            nxt = None
+            for ch in children:
+                thr = ch["numeric_threshold"]
+                if ch["condition"] == "<" and v < thr:
+                    nxt = ch["node_id"]
+                    break
+                if ch["condition"] == ">=" and v >= thr:
+                    nxt = ch["node_id"]
+                    break
+
+            if nxt is None:
+                # No child condition matched; stop at current node.
+                break
+            node_id = nxt
+        return node_id
 
     # --------------------------------------------------------------------- #
     # Fit / Predict
@@ -127,7 +170,7 @@ class LeafAggregatingQRF:
 
         Returns
         -------
-        self : LeafAggregatingQRF
+        self : QuantileRegressionForest
             Fitted estimator.
         """
         self.trees_.clear()
@@ -201,7 +244,7 @@ class LeafAggregatingQRF:
         quantile: Optional[float] = None,
     ) -> np.ndarray:
         """
-        Predict by averaging individual tree predictions.
+        Predict the requested quantile by aggregating per-tree leaf samples.
 
         Parameters
         ----------
@@ -213,7 +256,7 @@ class LeafAggregatingQRF:
         Returns
         -------
         np.ndarray, shape (n_samples,)
-            Predicted values (average of tree predictions).
+            Predicted quantiles.
         """
         if quantile is None:
             quantile = self.quantile
@@ -243,7 +286,7 @@ class LeafAggregatingQRF:
         return np.asarray(preds, dtype=float)
 
 
-class PredictionAveragingQRF(LeafAggregatingQRF):
+class AveragingQuantileRegressionForest(QuantileRegressionForest):
     """
     Ensemble of QuantileRegressionTree that averages per-tree predictions.
 
@@ -252,7 +295,7 @@ class PredictionAveragingQRF(LeafAggregatingQRF):
     This makes the forest's output sensitive to the `split_criterion` of
     the underlying trees.
 
-    Inherits most parameters from LeafAggregatingQRF but overrides
+    Inherits most parameters from QuantileRegressionForest but overrides
     the `fit` and `predict` methods.
     """
 

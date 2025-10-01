@@ -11,15 +11,15 @@ import numpy as np
 import pandas as pd
 
 from models.quantile_regression_forest import (
-    PredictionAveragingQRF,
-    LeafAggregatingQRF,
+    AveragingQuantileRegressionForest,
+    QuantileRegressionForest,
 )
 from models.quantile_regression_tree import QuantileRegressionTree
 from utils.data_loader import load_data, rolling_time
 from utils.trading_strategy import trading_rule
 
 from models.qunatile_regression_model_leaf_tree import LeafQuantileRegressionTree
-from models.qunatile_regression_model_node_tree import NodeQuantileRegressionTree
+# from models.qunatile_regression_model_node_tree import NodeQuantileRegressionTree
 
 # ------------------------------ CLI -------------------------------- #
 
@@ -84,21 +84,22 @@ TREE_VARIANTS: Dict[str, type] = {
 }
 
 FOREST_VARIANTS: Dict[str, type] = {
-    "LeafAgg_Std_loss": partial(LeafAggregatingQRF, split_criterion="loss"),
-    "LeafAgg_Std_mse": partial(LeafAggregatingQRF, split_criterion="mse"),
-    "LeafAgg_Std_r2": partial(LeafAggregatingQRF, split_criterion="r2"),
-    "LeafAgg_Leaf_loss": partial(LeafAggregatingQRF, split_criterion="loss", tree_cls=LeafQuantileRegressionTree),
-    "LeafAgg_Leaf_mse": partial(LeafAggregatingQRF, split_criterion="mse", tree_cls=LeafQuantileRegressionTree),
-    "LeafAgg_Leaf_r2": partial(LeafAggregatingQRF, split_criterion="r2", tree_cls=LeafQuantileRegressionTree),
-    "PredAvg_Std_loss": partial(
-        PredictionAveragingQRF, split_criterion="loss"
+    "QRF_loss": partial(QuantileRegressionForest, split_criterion="loss"),
+    "QRF_mse": partial(QuantileRegressionForest, split_criterion="mse"),
+    "QRF_r2": partial(QuantileRegressionForest, split_criterion="r2"),
+    "AveragingQRF_loss": partial(
+        AveragingQuantileRegressionForest, split_criterion="loss"
     ),
-    "PredAvg_Std_mse": partial(
-        PredictionAveragingQRF, split_criterion="mse"
+    "AveragingQRF_mse": partial(
+        AveragingQuantileRegressionForest, split_criterion="mse"
     ),
-    "PredAvg_Std_r2": partial(
-        PredictionAveragingQRF, split_criterion="r2"
+    "AveragingQRF_r2": partial(
+        AveragingQuantileRegressionForest, split_criterion="r2"
     ),
+    "QRF_leaf_loss": partial(LeafQuantileRegressionTree, split_criterion="loss"),
+    "QRF_lead_mse": partial(LeafQuantileRegressionTree, split_criterion="mse"),
+    "QRF_leaf_r2": partial(LeafQuantileRegressionTree, split_criterion="r2"),
+
 }
 
 
