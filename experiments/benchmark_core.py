@@ -73,12 +73,12 @@ def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) 
     return float(np.mean((y_true >= ql_pred) & (y_true <= qh_pred)))
 
 
-SplitCriterion = ["loss", "mse", "r2"]
+SplitCriterion = ["mse", "loss", "r2"]
 
 TREE_VARIANTS: Dict[str, type] = {
     "QRT": QuantileRegressionTree,
     "QRT_leaf": LeafQuantileRegressionTree,
-    "QRT_node": NodeQuantileRegressionTree,
+    # "QRT_node": NodeQuantileRegressionTree,
 }
 
 FOREST_VARIANTS: Dict[str, type] = {
