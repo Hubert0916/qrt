@@ -398,6 +398,7 @@ class NodeQuantileRegressionTree:
         best_thr: Optional[float] = None
 
         for f in features:
+            print(f"Evaluating feature {f}...")
             thr, score = self._best_split_for_feature(f, idx, quantile)
             if thr is None:
                 continue
@@ -475,6 +476,7 @@ class NodeQuantileRegressionTree:
         self.node_models.clear()
 
         while q:
+            print("Nodes in queue:", len(q))
             node = q.popleft()
             idx = node.indices
             depth = node.depth
