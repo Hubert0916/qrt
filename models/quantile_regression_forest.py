@@ -51,7 +51,7 @@ class QuantileRegressionForest:
         max_threshold_candidates: int = 128,
         random_thresholds: bool = False,
         random_state: Optional[int] = None,
-        tree_cls: Type[QuantileRegressionTree] = QuantileRegressionTree,
+        tree_cls: Type[QuantileRegressionTree] = QuantileRegressionTree,  # for different tree implementations
     ):
         self.n_estimators = n_estimators
         self.quantile = quantile
