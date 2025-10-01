@@ -426,45 +426,110 @@ def _write_plots(metrics_df: pd.DataFrame, ql: float, qh: float, outdir: str) ->
     plt.savefig(os.path.join(outdir, "04_annualized_return_bar.png"), dpi=200)
     plt.close()
 
-    # Compare baseline vs leaf annualized returns
-    ann_ret_by_model = metrics_df.groupby("model")["annualized_return"].mean()
-    comparison_pairs = [
-        ("QRT", "QRT_leaf"),
-        ("QRF", "QRF_leaf"),
-    ]
-    categories: List[str] = []
-    base_values: List[float] = []
-    leaf_values: List[float] = []
-    for base, leaf in comparison_pairs:
-        if base in ann_ret_by_model and leaf in ann_ret_by_model:
-            categories.append(base)
-            base_values.append(float(ann_ret_by_model[base]))
-            leaf_values.append(float(ann_ret_by_model[leaf]))
+    def _plot_model_pair_comparison(
+        pairs: List[Tuple[str, str]],
+        filename: str,
+        title: str,
+    ) -> None:
+        ann_by_model = metrics_df.groupby("model")["annualized_return"].mean()
 
-    if categories:
-        x = np.arange(len(categories))
+        labels: List[str] = []
+        baseline_vals: List[float] = []
+        variant_vals: List[float] = []
+
+        for base, variant in pairs:
+            if base in ann_by_model and variant in ann_by_model:
+                labels.append(f"{base} vs {variant}")
+                baseline_vals.append(float(ann_by_model[base]))
+                variant_vals.append(float(ann_by_model[variant]))
+
+        if not labels:
+            return
+
+        x = np.arange(len(labels))
         width = 0.35
         plt.figure(figsize=(10, 6))
         ax = plt.gca()
-        ax.bar(x - width / 2, base_values, width, label="Original")
-        ax.bar(x + width / 2, leaf_values, width, label="Leaf")
+        ax.bar(x - width / 2, baseline_vals, width, label="Baseline")
+        ax.bar(x + width / 2, variant_vals, width, label="Variant")
         ax.set_xticks(x)
-        ax.set_xticklabels(categories)
+        ax.set_xticklabels(labels, rotation=15, ha="right")
         ax.set_ylabel("Mean Annualized Return")
-        ax.set_title("Original vs Leaf Annualized Return")
-        max_val = max(base_values + leaf_values)
-        min_val = min(base_values + leaf_values)
+        ax.set_title(title)
+
+        max_val = max(baseline_vals + variant_vals)
+        min_val = min(baseline_vals + variant_vals)
         ax.set_ylim(min_val * 0.95, max_val * 1.05 if max_val != 0 else 1.0)
 
-        for xpos, val in zip(x - width / 2, base_values):
+        for xpos, val in zip(x - width / 2, baseline_vals):
             ax.text(xpos, val, f"{val:.2f}", ha="center", va="bottom", fontsize=9)
-        for xpos, val in zip(x + width / 2, leaf_values):
+        for xpos, val in zip(x + width / 2, variant_vals):
             ax.text(xpos, val, f"{val:.2f}", ha="center", va="bottom", fontsize=9)
 
         ax.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join(outdir, "05_ann_return_original_vs_leaf.png"), dpi=200)
+        plt.savefig(os.path.join(outdir, filename), dpi=200)
         plt.close()
+
+    _plot_model_pair_comparison(
+        [("QRT", "QRT_leaf"), ("QRT", "QRT_node")],
+        "05_tree_ann_return_model_compare.png",
+        "Tree Variants Annualized Return (all criteria)",
+    )
+    _plot_model_pair_comparison(
+        [("QRF", "QRF_leaf"), ("QRF", "QRF_node")],
+        "05_forest_ann_return_model_compare.png",
+        "Forest Variants Annualized Return (all criteria)",
+    )
+
+    def _plot_loss_per_window(models: List[str], filename: str, title: str) -> None:
+        subset = metrics_df[
+            (metrics_df["criterion"] == "loss") & metrics_df["model"].isin(models)
+        ]
+        if subset.empty:
+            return
+
+        pivot = (
+            subset.pivot_table(
+                index="window",
+                columns="model",
+                values="annualized_return",
+                aggfunc="mean",
+            )
+            .sort_index()
+            .reindex(columns=models)
+        )
+
+        plt.figure(figsize=(10, 6))
+        for i, model in enumerate(models):
+            alpha = 0.8 if i == 0 else 0.5
+            plt.plot(
+                pivot.index,
+                pivot[model],
+                marker="o",
+                linewidth=2,
+                label=model,
+                alpha=alpha,
+            )
+        plt.xlabel("Rolling Window")
+        plt.ylabel("Annualized Return (criterion=loss)")
+        plt.title(title)
+        plt.grid(True, linewidth=0.3, alpha=0.6)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(outdir, filename), dpi=200)
+        plt.close()
+
+    _plot_loss_per_window(
+        ["QRT", "QRT_leaf"],
+        "06_qrt_vs_leaf_loss_per_window.png",
+        "QRT vs QRT_leaf Annualized Return by Window",
+    )
+    _plot_loss_per_window(
+        ["QRF", "QRF_leaf"],
+        "06_qrf_vs_leaf_loss_per_window.png",
+        "QRF vs QRF_leaf Annualized Return by Window",
+    )
 
 
 def ensure_subdir(base: str, sub: str) -> str:
