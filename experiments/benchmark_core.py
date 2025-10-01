@@ -26,10 +26,10 @@ def build_arg_parser() -> ArgumentParser:
     parser = ArgumentParser(
         description="Benchmark QRT variants under different split criteria and quantile bands.",
     )
-    parser.add_argument("--train_period", type=int, default=4)
+    parser.add_argument("--train_period", type=int, default=3)
     parser.add_argument("--test_period", type=int, default=1)
     parser.add_argument("--max_depth", type=int, default=5)
-    parser.add_argument("--min_samples_leaf", type=int, default=10)
+    parser.add_argument("--min_samples_leaf", type=int, default=5)
     parser.add_argument("--qh", type=float, default=0.7)
     parser.add_argument("--ql", type=float, default=0.3)
     parser.add_argument(
@@ -76,8 +76,8 @@ def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) 
 SplitCriterion = ["loss", "mse", "r2"]
 
 TREE_VARIANTS: Dict[str, type] = {
-    "QRT": QuantileRegressionTree,
-    "QRT_leaf": LeafQuantileRegressionTree,
+    # "QRT": QuantileRegressionTree,
+    # "QRT_leaf": LeafQuantileRegressionTree,
     "QRT_node": NodeQuantileRegressionTree,
 }
 
@@ -129,8 +129,6 @@ def fit_predict_qrt(
         min_samples_leaf=min_samples_leaf,
         feature_names=feature_names,
         random_state=seed,
-        random_features=False,
-        random_thresholds=False,
         max_threshold_candidates=128,
     )
     model_l.fit(X_train, y_train, ql)
@@ -141,8 +139,6 @@ def fit_predict_qrt(
         min_samples_leaf=min_samples_leaf,
         feature_names=feature_names,
         random_state=seed,
-        random_features=False,
-        random_thresholds=False,
         max_threshold_candidates=128,
     )
     model_h.fit(X_train, y_train, qh)

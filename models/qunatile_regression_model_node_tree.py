@@ -57,12 +57,12 @@ class NodeQuantileRegressionTree:
         self,
         split_criterion: str = "loss",
         max_depth: int = 5,
-        min_samples_leaf: int = 10,
+        min_samples_leaf: int = 5,
         feature_names: Optional[List[str]] = None,
         random_state: Optional[int] = None,
         random_features: bool = True,
         random_thresholds: bool = True,
-        max_threshold_candidates: Optional[int] = 10,
+        max_threshold_candidates: Optional[int] = 128,
     ) -> None:
         if split_criterion not in {"r2", "loss", "mse"}:
             raise ValueError("split_criterion must be 'r2', 'loss', or 'mse'")
@@ -270,6 +270,7 @@ class NodeQuantileRegressionTree:
         if cut_positions.size == 0:
             default = np.inf if self.split_criterion in {
                 "loss", "mse"} else -np.inf
+            # print("No valid cut positions found.")
             return None, default
 
         # Optional subsampling of candidate thresholds.
