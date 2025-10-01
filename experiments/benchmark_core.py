@@ -26,7 +26,7 @@ def build_arg_parser() -> ArgumentParser:
     parser = ArgumentParser(
         description="Benchmark QRT variants under different split criteria and quantile bands.",
     )
-    parser.add_argument("--train_period", type=int, default=3)
+    parser.add_argument("--train_period", type=int, default=5)
     parser.add_argument("--test_period", type=int, default=1)
     parser.add_argument("--max_depth", type=int, default=5)
     parser.add_argument("--min_samples_leaf", type=int, default=5)
