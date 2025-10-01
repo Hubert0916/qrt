@@ -435,6 +435,46 @@ def _write_plots(metrics_df: pd.DataFrame, ql: float, qh: float, outdir: str) ->
     plt.savefig(os.path.join(outdir, "04_annualized_return_bar.png"), dpi=200)
     plt.close()
 
+    # Compare baseline vs leaf annualized returns
+    ann_ret_by_model = metrics_df.groupby("model")["annualized_return"].mean()
+    comparison_pairs = [
+        ("QRT", "QRT_leaf"),
+        ("QRF", "QRF_leaf"),
+    ]
+    categories: List[str] = []
+    base_values: List[float] = []
+    leaf_values: List[float] = []
+    for base, leaf in comparison_pairs:
+        if base in ann_ret_by_model and leaf in ann_ret_by_model:
+            categories.append(base)
+            base_values.append(float(ann_ret_by_model[base]))
+            leaf_values.append(float(ann_ret_by_model[leaf]))
+
+    if categories:
+        x = np.arange(len(categories))
+        width = 0.35
+        plt.figure(figsize=(10, 6))
+        ax = plt.gca()
+        ax.bar(x - width / 2, base_values, width, label="Original")
+        ax.bar(x + width / 2, leaf_values, width, label="Leaf")
+        ax.set_xticks(x)
+        ax.set_xticklabels(categories)
+        ax.set_ylabel("Mean Annualized Return")
+        ax.set_title("Original vs Leaf Annualized Return")
+        max_val = max(base_values + leaf_values)
+        min_val = min(base_values + leaf_values)
+        ax.set_ylim(min_val * 0.95, max_val * 1.05 if max_val != 0 else 1.0)
+
+        for xpos, val in zip(x - width / 2, base_values):
+            ax.text(xpos, val, f"{val:.2f}", ha="center", va="bottom", fontsize=9)
+        for xpos, val in zip(x + width / 2, leaf_values):
+            ax.text(xpos, val, f"{val:.2f}", ha="center", va="bottom", fontsize=9)
+
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(outdir, "05_ann_return_original_vs_leaf.png"), dpi=200)
+        plt.close()
+
 
 def ensure_subdir(base: str, sub: str) -> str:
     path = os.path.join(base, sub)
