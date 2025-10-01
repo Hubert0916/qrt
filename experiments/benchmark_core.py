@@ -84,19 +84,19 @@ TREE_VARIANTS: Dict[str, type] = {
 }
 
 FOREST_VARIANTS: Dict[str, type] = {
-    "QRF_loss": partial(LeafAggregatingQRF, split_criterion="loss"),
-    "QRF_mse": partial(LeafAggregatingQRF, split_criterion="mse"),
-    "QRF_r2": partial(LeafAggregatingQRF, split_criterion="r2"),
-    "QRF_leaf_loss": partial(LeafAggregatingQRF, split_criterion="loss", tree_cls=LeafQuantileRegressionTree),
-    "QRF_leaf_mse": partial(LeafAggregatingQRF, split_criterion="mse", tree_cls=LeafQuantileRegressionTree),
-    "QRF_leaf_r2": partial(LeafAggregatingQRF, split_criterion="r2", tree_cls=LeafQuantileRegressionTree),
-    "AveragingQRF_loss": partial(
+    "LeafAgg_Std_loss": partial(LeafAggregatingQRF, split_criterion="loss"),
+    "LeafAgg_Std_mse": partial(LeafAggregatingQRF, split_criterion="mse"),
+    "LeafAgg_Std_r2": partial(LeafAggregatingQRF, split_criterion="r2"),
+    "LeafAgg_Leaf_loss": partial(LeafAggregatingQRF, split_criterion="loss", tree_cls=LeafQuantileRegressionTree),
+    "LeafAgg_Leaf_mse": partial(LeafAggregatingQRF, split_criterion="mse", tree_cls=LeafQuantileRegressionTree),
+    "LeafAgg_Leaf_r2": partial(LeafAggregatingQRF, split_criterion="r2", tree_cls=LeafQuantileRegressionTree),
+    "PredAvg_Std_loss": partial(
         PredictionAveragingQRF, split_criterion="loss"
     ),
-    "AveragingQRF_mse": partial(
+    "PredAvg_Std_mse": partial(
         PredictionAveragingQRF, split_criterion="mse"
     ),
-    "AveragingQRF_r2": partial(
+    "PredAvg_Std_r2": partial(
         PredictionAveragingQRF, split_criterion="r2"
     ),
 }

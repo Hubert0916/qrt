@@ -116,7 +116,7 @@ class LeafAggregatingQRF:
         y: Union[pd.Series, np.ndarray],
     ):
         """
-        Train the forest using traditional bagging approach.
+        Train the forest and cache per-leaf sample bags (with optional OOB).
 
         Parameters
         ----------
@@ -127,10 +127,11 @@ class LeafAggregatingQRF:
 
         Returns
         -------
-        self : QuantileRegressionForest
+        self : LeafAggregatingQRF
             Fitted estimator.
         """
         self.trees_.clear()
+        self.leaf_values_.clear()
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_ = X.columns.tolist()
@@ -142,6 +143,7 @@ class LeafAggregatingQRF:
         y_np = np.asarray(y)
 
         n = X_np.shape[0]
+        self._fallback_quantile = float(np.quantile(y_np, self.quantile))
 
         for i in range(self.n_estimators):
             # Bootstrap sampling (bagging).
@@ -170,6 +172,26 @@ class LeafAggregatingQRF:
             )
             tree.fit(X_bag[:, f_idx], y_bag, quantile=self.quantile)
             self.trees_.append(tree)
+
+            # Aggregate in-bag samples per leaf.
+            leaf_ids = np.array([self._get_leaf_node(tree, x) for x in X_bag])
+            mp = defaultdict(list)
+            for lid, yi in zip(leaf_ids, y_bag):
+                mp[lid].append(float(yi))
+
+            # Optional OOB enrichment: push unseen samples through this tree.
+            if self.include_oob and self.bootstrap:
+                oob_mask = np.ones(n, dtype=bool)
+                oob_mask[idx] = False
+                X_oob = X_np[oob_mask]
+                y_oob = y_np[oob_mask]
+                if X_oob.size:
+                    for x, yi in zip(X_oob, y_oob):
+                        lid = self._get_leaf_node(tree, x)
+                        mp[lid].append(float(yi))
+
+            # Freeze the mapping for this tree.
+            self.leaf_values_.append(dict(mp))
 
         return self
 
