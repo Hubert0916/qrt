@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from argparse import ArgumentParser, Namespace
 from typing import Dict, Iterable, List, Tuple
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
@@ -42,8 +44,14 @@ def build_arg_parser() -> ArgumentParser:
         type=str,
         default="output/benchmark_split",
     )
-    parser.add_argument("--n_estimators", type=int, default=50)
+    parser.add_argument("--n_estimators", type=int, default=10)
     parser.add_argument("--random_state", type=int, default=42)
+    parser.add_argument(
+        "--n_processes",
+        type=int,
+        default=None,
+        help="Number of processes for parallel processing. Default: CPU count - 1.",
+    )
     parser.add_argument(
         "--annualization-base",
         type=float,
@@ -196,12 +204,112 @@ def fit_predict_qrf(
     return y_pred_l, y_pred_h
 
 
+def process_window(
+    win: int,
+    args: Namespace,
+    model_kinds: List[str],
+    ql: float,
+    qh: float,
+    n_windows: int,
+) -> List[Dict]:
+    """Process a single window and return records for all models."""
+    print(f"\n=== Rolling window {win + 1}/{n_windows} ===")
+    
+    train_df, test_df = load_data(args.data, args.train_period, args.test_period, win)
+    x_cols = [c for c in train_df.columns if c.endswith("_TFIDF")]
+    X_train, y_train = train_df[x_cols], train_df["報酬率"]
+    X_test, y_test = test_df[x_cols], test_df["報酬率"]
+
+    window_records: List[Dict] = []
+
+    for model_kind in model_kinds:
+        for crit in SplitCriterion:
+            if model_kind in TREE_VARIANTS:
+                tree_cls = TREE_VARIANTS[model_kind]
+                y_pred_l, y_pred_h = fit_predict_qrt(
+                    X_train,
+                    y_train,
+                    X_test,
+                    crit,
+                    ql,
+                    qh,
+                    args.max_depth,
+                    args.min_samples_leaf,
+                    x_cols,
+                    args.random_state,
+                    tree_cls,
+                )
+            elif model_kind in FOREST_VARIANTS:
+                tree_cls = FOREST_VARIANTS[model_kind]
+                y_pred_l, y_pred_h = fit_predict_qrf(
+                    X_train,
+                    y_train,
+                    X_test,
+                    crit,
+                    ql,
+                    qh,
+                    args.n_estimators,
+                    args.max_depth,
+                    args.min_samples_leaf,
+                    args.random_state,
+                    tree_cls,
+                )
+            else:
+                raise ValueError(f"Unknown model kind: {model_kind}")
+
+            pl_ql = pinball_loss(y_test.values, y_pred_l, ql)
+            pl_qh = pinball_loss(y_test.values, y_pred_h, qh)
+            cov = coverage_rate(y_test.values, y_pred_l, y_pred_h)
+
+            df_pred = test_df.copy()
+            df_pred[f"pred_q{ql}"] = y_pred_l
+            df_pred[f"pred_q{qh}"] = y_pred_h
+            df_traded = trading_rule(df_pred, qh, ql)
+            n_periods = len(df_traded)
+            cum_ret_final = (
+                float(df_traded["total_return"].iloc[-1]) if n_periods > 0 else 0.0
+            )
+            avg_return = float(df_traded["return"].mean()) if n_periods > 0 else 0.0
+
+            annualized_return = 0.0
+            base = float(args.annualization_base)
+            if n_periods > 0 and cum_ret_final > -1.0 and base > 0:
+                annualized_return = (1.0 + cum_ret_final) ** (base / n_periods) - 1.0
+
+            window_records.append(
+                dict(
+                    window=win + 1,
+                    ql=ql,
+                    qh=qh,
+                    model=model_kind,
+                    criterion=crit,
+                    pinball_ql=pl_ql,
+                    pinball_qh=pl_qh,
+                    pinball_sum=pl_ql + pl_qh,
+                    coverage=cov,
+                    cum_return=cum_ret_final,
+                    avg_return=avg_return,
+                    annualized_return=annualized_return,
+                )
+            )
+
+            print(
+                f"Window {win + 1} [{model_kind}/{crit}]  Pinball(ql_{round(ql*100):02d})={pl_ql:.4f}  "
+                f"Pinball(qh_{round(qh*100):02d})={pl_qh:.4f}  "
+                f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}  "
+                f"AvgRet={avg_return:.4f}  AnnRet={annualized_return:.4f}"
+            )
+
+    return window_records
+
+
 def run_benchmark(
     args: Namespace,
     model_kinds: Iterable[str],
     ql: float,
     qh: float,
     outdir: str,
+    n_processes: int = None,
 ) -> pd.DataFrame:
     os.makedirs(outdir, exist_ok=True)
 
@@ -212,93 +320,32 @@ def run_benchmark(
     print("================================")
 
     n_windows = rolling_time(args.data, args.train_period, args.test_period)
+    model_kinds_list = list(model_kinds)
+    
+    # Set number of processes - default to CPU count - 1 to leave one core free
+    if n_processes is None:
+        n_processes = max(1, cpu_count() - 1)
+    
+    print(f"Using {n_processes} processes for {n_windows} windows")
 
+    # Prepare the partial function for multiprocessing
+    process_func = partial(
+        process_window,
+        args=args,
+        model_kinds=model_kinds_list,
+        ql=ql,
+        qh=qh,
+        n_windows=n_windows,
+    )
+
+    # Use multiprocessing to process windows in parallel
+    with Pool(processes=n_processes) as pool:
+        window_results = pool.map(process_func, range(n_windows))
+
+    # Flatten the results from all windows
     records: List[Dict] = []
-
-    for win in range(n_windows):
-        print(f"\n=== Rolling window {win + 1}/{n_windows} ===")
-        train_df, test_df = load_data(args.data, args.train_period, args.test_period, win)
-        x_cols = [c for c in train_df.columns if c.endswith("_TFIDF")]
-        X_train, y_train = train_df[x_cols], train_df["報酬率"]
-        X_test, y_test = test_df[x_cols], test_df["報酬率"]
-
-        for model_kind in model_kinds:
-            for crit in SplitCriterion:
-                if model_kind in TREE_VARIANTS:
-                    tree_cls = TREE_VARIANTS[model_kind]
-                    y_pred_l, y_pred_h = fit_predict_qrt(
-                        X_train,
-                        y_train,
-                        X_test,
-                        crit,
-                        ql,
-                        qh,
-                        args.max_depth,
-                        args.min_samples_leaf,
-                        x_cols,
-                        args.random_state,
-                        tree_cls,
-                    )
-                elif model_kind in FOREST_VARIANTS:
-                    tree_cls = FOREST_VARIANTS[model_kind]
-                    y_pred_l, y_pred_h = fit_predict_qrf(
-                        X_train,
-                        y_train,
-                        X_test,
-                        crit,
-                        ql,
-                        qh,
-                        args.n_estimators,
-                        args.max_depth,
-                        args.min_samples_leaf,
-                        args.random_state,
-                        tree_cls,
-                    )
-                else:
-                    raise ValueError(f"Unknown model kind: {model_kind}")
-
-                pl_ql = pinball_loss(y_test.values, y_pred_l, ql)
-                pl_qh = pinball_loss(y_test.values, y_pred_h, qh)
-                cov = coverage_rate(y_test.values, y_pred_l, y_pred_h)
-
-                df_pred = test_df.copy()
-                df_pred[f"pred_q{ql}"] = y_pred_l
-                df_pred[f"pred_q{qh}"] = y_pred_h
-                df_traded = trading_rule(df_pred, qh, ql)
-                n_periods = len(df_traded)
-                cum_ret_final = (
-                    float(df_traded["total_return"].iloc[-1]) if n_periods > 0 else 0.0
-                )
-                avg_return = float(df_traded["return"].mean()) if n_periods > 0 else 0.0
-
-                annualized_return = 0.0
-                base = float(args.annualization_base)
-                if n_periods > 0 and cum_ret_final > -1.0 and base > 0:
-                    annualized_return = (1.0 + cum_ret_final) ** (base / n_periods) - 1.0
-
-                records.append(
-                    dict(
-                        window=win + 1,
-                        ql=ql,
-                        qh=qh,
-                        model=model_kind,
-                        criterion=crit,
-                        pinball_ql=pl_ql,
-                        pinball_qh=pl_qh,
-                        pinball_sum=pl_ql + pl_qh,
-                        coverage=cov,
-                        cum_return=cum_ret_final,
-                        avg_return=avg_return,
-                        annualized_return=annualized_return,
-                    )
-                )
-
-                print(
-                    f"[{model_kind}/{crit}]  Pinball(ql_{round(ql*100):02d})={pl_ql:.4f}  "
-                    f"Pinball(qh_{round(qh*100):02d})={pl_qh:.4f}  "
-                    f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}  "
-                    f"AvgRet={avg_return:.4f}  AnnRet={annualized_return:.4f}"
-                )
+    for window_records in window_results:
+        records.extend(window_records)
 
     metrics_df = pd.DataFrame.from_records(records)
     metrics_df.to_csv(os.path.join(outdir, "metrics.csv"), index=False)
@@ -543,4 +590,4 @@ def run_quantile_sweep(args: Namespace, model_kinds: Iterable[str]) -> None:
     for ql, qh in quantile_pairs:
         outdir_suffix = quantile_dir_suffix(ql, qh)
         target_outdir = os.path.join(args.outdir, outdir_suffix)
-        run_benchmark(args, model_kinds, ql, qh, target_outdir)
+        run_benchmark(args, model_kinds, ql, qh, target_outdir, args.n_processes)
