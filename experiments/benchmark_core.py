@@ -11,7 +11,7 @@ import matplotlib.ticker as mtick
 import numpy as np
 import pandas as pd
 
-from models.quantile_regression_forest import AveragingQuantileRegressionForest as QuantileRegressionForest
+from models.quantile_regression_forest import QuantileRegressionForest
 from models.quantile_regression_tree import QuantileRegressionTree
 from utils.data_loader import load_data, rolling_time
 from utils.trading_strategy import trading_rule
@@ -40,7 +40,7 @@ def build_arg_parser() -> ArgumentParser:
     parser.add_argument(
         "--outdir",
         type=str,
-        default="output/benchmark_split",
+        default="output2/benchmark_split",
     )
     parser.add_argument("--n_estimators", type=int, default=50)
     parser.add_argument("--random_state", type=int, default=42)
