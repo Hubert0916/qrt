@@ -264,10 +264,6 @@ Full Results
 
 For per-window plots, calibration diagnostics, and discussion, see [Full results](docs/results.md)
 
-## Future Work
-
-...Model Tree...
-
 
 ## References
 
