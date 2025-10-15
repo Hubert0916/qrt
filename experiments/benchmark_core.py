@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from argparse import ArgumentParser, Namespace
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from multiprocessing import Pool, cpu_count
 from functools import partial
 
@@ -269,12 +269,28 @@ def process_window(
             cum_ret_final = (
                 float(df_traded["total_return"].iloc[-1]) if n_periods > 0 else 0.0
             )
+            long_cum_final = (
+                float(df_traded["long_total_return"].iloc[-1]) if n_periods > 0 else 0.0
+            )
+            short_cum_final = (
+                float(df_traded["short_total_return"].iloc[-1]) if n_periods > 0 else 0.0
+            )
             avg_return = float(df_traded["return"].mean()) if n_periods > 0 else 0.0
+            base = float(args.annualization_base)
 
             annualized_return = 0.0
-            base = float(args.annualization_base)
             if n_periods > 0 and cum_ret_final > -1.0 and base > 0:
                 annualized_return = (1.0 + cum_ret_final) ** (base / n_periods) - 1.0
+            long_annualized_return = 0.0
+            if n_periods > 0 and long_cum_final > -1.0 and base > 0:
+                long_annualized_return = (1.0 + long_cum_final) ** (
+                    base / n_periods
+                ) - 1.0
+            short_annualized_return = 0.0
+            if n_periods > 0 and short_cum_final > -1.0 and base > 0:
+                short_annualized_return = (1.0 + short_cum_final) ** (
+                    base / n_periods
+                ) - 1.0
 
             window_records.append(
                 dict(
@@ -290,6 +306,8 @@ def process_window(
                     cum_return=cum_ret_final,
                     avg_return=avg_return,
                     annualized_return=annualized_return,
+                    long_annualized_return=long_annualized_return,
+                    short_annualized_return=short_annualized_return,
                 )
             )
 
@@ -297,7 +315,8 @@ def process_window(
                 f"Window {win + 1} [{model_kind}/{crit}]  Pinball(ql_{round(ql*100):02d})={pl_ql:.4f}  "
                 f"Pinball(qh_{round(qh*100):02d})={pl_qh:.4f}  "
                 f"Coverage={cov:.3f}  CumRet={cum_ret_final:.4f}  "
-                f"AvgRet={avg_return:.4f}  AnnRet={annualized_return:.4f}"
+                f"AvgRet={avg_return:.4f}  AnnRet={annualized_return:.4f}  "
+                f"LongAnn={long_annualized_return:.4f}  ShortAnn={short_annualized_return:.4f}"
             )
 
     return window_records
@@ -350,6 +369,7 @@ def run_benchmark(
     metrics_df = pd.DataFrame.from_records(records)
     metrics_df.to_csv(os.path.join(outdir, "metrics.csv"), index=False)
     _write_plots(metrics_df, ql, qh, outdir)
+    write_summary_tables(metrics_df, outdir)
     return metrics_df
 
 
@@ -577,6 +597,143 @@ def _write_plots(metrics_df: pd.DataFrame, ql: float, qh: float, outdir: str) ->
         "06_qrf_vs_leaf_loss_per_window.png",
         "QRF vs QRF_leaf Annualized Return by Window",
     )
+
+
+def annualized_return_by_model(
+    metrics_df: pd.DataFrame,
+    model_order: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Return pivoted annualized return by model and window."""
+    if metrics_df.empty:
+        return pd.DataFrame()
+
+    summary = (
+        metrics_df.groupby(["window", "model"], as_index=False)["annualized_return"]
+        .mean()
+        .pivot(index="window", columns="model", values="annualized_return")
+        .sort_index()
+    )
+
+    available = summary.columns.tolist()
+    if model_order:
+        missing = [name for name in model_order if name not in available]
+        if missing:
+            raise ValueError(
+                f"Unknown model(s) in ordering: {', '.join(missing)}"
+            )
+        remaining = [name for name in available if name not in model_order]
+        ordered = list(model_order) + remaining
+    else:
+        ordered = sorted(available)
+
+    return summary.reindex(columns=ordered)
+
+
+def annualized_return_by_model_criterion(metrics_df: pd.DataFrame) -> pd.DataFrame:
+    """Return pivoted annualized return by model, criterion, and window."""
+    if metrics_df.empty:
+        return pd.DataFrame()
+
+    pivot = (
+        metrics_df.groupby(["model", "criterion", "window"], as_index=False)[
+            "annualized_return"
+        ]
+        .mean()
+        .pivot_table(
+            index=["model", "criterion"],
+            columns="window",
+            values="annualized_return",
+        )
+        .sort_index()
+    )
+
+    return pivot.reindex(sorted(pivot.columns), axis=1)
+
+
+def long_short_annualized_by_model(
+    metrics_df: pd.DataFrame,
+    model_order: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Return long/short annualized returns by model for each window."""
+    if metrics_df.empty:
+        return pd.DataFrame()
+
+    long_table = (
+        metrics_df.pivot_table(
+            index="window",
+            columns="model",
+            values="long_annualized_return",
+            aggfunc="mean",
+        )
+        .sort_index()
+        .fillna(0.0)
+    )
+    short_table = (
+        metrics_df.pivot_table(
+            index="window",
+            columns="model",
+            values="short_annualized_return",
+            aggfunc="mean",
+        )
+        .sort_index()
+        .fillna(0.0)
+    )
+
+    available = sorted(set(long_table.columns).union(short_table.columns))
+    if model_order:
+        missing = [name for name in model_order if name not in available]
+        if missing:
+            raise ValueError(
+                f"Unknown model(s) in ordering: {', '.join(missing)}"
+            )
+        remaining = [name for name in available if name not in model_order]
+        ordered = list(model_order) + remaining
+    else:
+        ordered = available
+
+    long_ordered = long_table.reindex(columns=ordered)
+    short_ordered = short_table.reindex(columns=ordered)
+
+    data: Dict[str, pd.Series] = {}
+    for model in ordered:
+        data[f"{model}_long_annualized"] = long_ordered.get(model)
+        data[f"{model}_short_annualized"] = short_ordered.get(model)
+
+    combined = pd.DataFrame(data, index=long_ordered.index)
+    combined.index.name = "window"
+    return combined
+
+
+def write_summary_tables(
+    metrics_df: pd.DataFrame,
+    outdir: str,
+    *,
+    float_format: str = "%.6f",
+    model_order: Optional[Sequence[str]] = None,
+) -> None:
+    """Export summary CSV tables for annualized returns."""
+    os.makedirs(outdir, exist_ok=True)
+
+    by_model = annualized_return_by_model(metrics_df, model_order=model_order)
+    if not by_model.empty:
+        by_model.to_csv(
+            os.path.join(outdir, "annualized_return_by_model.csv"),
+            float_format=float_format,
+        )
+
+    by_model_criterion = annualized_return_by_model_criterion(metrics_df)
+    if not by_model_criterion.empty:
+        by_model_criterion.to_csv(
+            os.path.join(outdir, "annualized_return_by_model_criterion.csv"),
+            float_format=float_format,
+        )
+
+    long_short = long_short_annualized_by_model(metrics_df, model_order=model_order)
+    if not long_short.empty:
+        long_short.to_csv(
+            os.path.join(outdir, "annualized_return_long_short_by_model.csv"),
+            float_format=float_format,
+        )
 
 
 def ensure_subdir(base: str, sub: str) -> str:

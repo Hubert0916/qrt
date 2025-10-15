@@ -75,6 +75,8 @@ def _simulate_short(row: pd.Series, entry_price: float, previous_high: float, ta
 def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
     df = test_df.copy()
     df["return"] = 0.0
+    df["long_return"] = 0.0
+    df["short_return"] = 0.0
 
     up_col = f"pred_q{qh}"
     low_col = f"pred_q{ql}"
@@ -89,6 +91,8 @@ def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
         lower_pred = row.get(low_col)
 
         trade_return = 0.0
+        long_return = 0.0
+        short_return = 0.0
 
         prev_low = row.get("BIDLO_-4d")
         prev_high = row.get("ASKHI_-4d")
@@ -102,31 +106,58 @@ def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
             (prev_high - entry_price) / prev_high
             if prev_high is not None else None
         )
-
-
-        if (
+        long_signal = (
             upper_pred is not None
             and not pd.isna(upper_pred)
             and upper_pred > 0
             and long_gate is not None
             and long_gate > 0
             and long_gate <= float(upper_pred)
-        ):
-            trade_return = _simulate_long(
-                row, entry_price, prev_low, float(upper_pred))
-
-        if (
+        )
+        short_signal = (
             lower_pred is not None
             and not pd.isna(lower_pred)
             and lower_pred < 0
             and short_gate is not None
             and short_gate > 0
             and short_gate <= abs(float(lower_pred))
-        ):
-            trade_return = _simulate_short(
-                row, entry_price, prev_high, float(lower_pred))
+        )
+
+        if long_signal:
+            long_return = _simulate_long(
+                row, entry_price, prev_low, float(upper_pred)
+            )
+
+        if short_signal:
+            short_return = _simulate_short(
+                row, entry_price, prev_high, float(lower_pred)
+            )
+
+        if long_signal and short_signal:
+            long_strength = float(upper_pred)
+            short_strength = abs(float(lower_pred))
+            if long_strength > short_strength:
+                trade_return = long_return
+                short_return = 0.0
+            elif short_strength > long_strength:
+                trade_return = short_return
+                long_return = 0.0
+            else:
+                # Tie-breaker defaults to short to reflect more conservative stance.
+                trade_return = short_return
+                long_return = 0.0
+        elif long_signal:
+            trade_return = long_return
+            short_return = 0.0
+        elif short_signal:
+            trade_return = short_return
+            long_return = 0.0
 
         df.at[idx, "return"] = trade_return
+        df.at[idx, "long_return"] = long_return
+        df.at[idx, "short_return"] = short_return
 
     df["total_return"] = df["return"].cumsum()
+    df["long_total_return"] = df["long_return"].cumsum()
+    df["short_total_return"] = df["short_return"].cumsum()
     return df
