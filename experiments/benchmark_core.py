@@ -653,10 +653,17 @@ def annualized_return_by_model_criterion(metrics_df: pd.DataFrame) -> pd.DataFra
 def long_short_annualized_by_model(
     metrics_df: pd.DataFrame,
     model_order: Optional[Sequence[str]] = None,
+    *,
+    criterion_filter: Optional[str] = None,
 ) -> pd.DataFrame:
     """Return long/short annualized returns by model for each window."""
     if metrics_df.empty:
         return pd.DataFrame()
+
+    if criterion_filter is not None:
+        metrics_df = metrics_df[metrics_df["criterion"] == criterion_filter]
+        if metrics_df.empty:
+            return pd.DataFrame()
 
     long_table = (
         metrics_df.pivot_table(
@@ -729,8 +736,26 @@ def write_summary_tables(
         )
 
     long_short = long_short_annualized_by_model(metrics_df, model_order=model_order)
-    if not long_short.empty:
-        long_short.to_csv(
+    loss_long_short = long_short_annualized_by_model(
+        metrics_df, model_order=model_order, criterion_filter="loss"
+    )
+
+    combined_long_short = long_short
+    if not loss_long_short.empty:
+        loss_long_short = loss_long_short.rename(
+            columns={
+                col: f"{col}_loss"
+                for col in loss_long_short.columns
+            }
+        )
+        combined_long_short = (
+            loss_long_short
+            if combined_long_short.empty
+            else pd.concat([combined_long_short, loss_long_short], axis=1)
+        )
+
+    if not combined_long_short.empty:
+        combined_long_short.to_csv(
             os.path.join(outdir, "annualized_return_long_short_by_model.csv"),
             float_format=float_format,
         )
