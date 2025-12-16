@@ -1,7 +1,4 @@
 # models/quantile_regression_forest.py
-"""
-Quantile Regression Forest
-"""
 
 from typing import Dict, List, Optional, Type, Union
 from collections import defaultdict
@@ -10,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from .quantile_regression_tree import QuantileRegressionTree
-from .qunatile_regression_model_leaf_tree import LeafQuantileRegressionTree
+from .quantile_regression_model_leaf_tree import QuantileRegressionModelTree
 
 
 class QuantileRegressionForest:

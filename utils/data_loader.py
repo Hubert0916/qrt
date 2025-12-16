@@ -3,7 +3,7 @@ import pandas as pd
 
 def rolling_time(file_path, train_period, test_period):
     df = pd.read_csv(file_path)
-    df_year = pd.to_datetime(df['日期']).dt.year
+    df_year = pd.to_datetime(df['Filing Date']).dt.year
     total_years = df_year.nunique()
     print (f"Unique years in data: {df_year.unique()}")
     print (f"Total unique years in data: {total_years}")
@@ -12,22 +12,22 @@ def rolling_time(file_path, train_period, test_period):
 def load_data(file_path, train_period, test_period, rolling_index):
 
     df = pd.read_csv(file_path, encoding='utf-8-sig')
-    df['日期'] = pd.to_datetime(df['日期'])
-    df = df.sort_values(by='日期')
+    df['Filing Date'] = pd.to_datetime(df['Filing Date'])
+    df = df.sort_values(by='Filing Date')
     
-    start_year = df['日期'].dt.year.min() + rolling_index
+    start_year = df['Filing Date'].dt.year.min() + rolling_index
     train_start = start_year
     train_end = start_year + train_period - 1
     test_start = train_end + 1
     test_end = test_start + test_period - 1
 
-    train_data = df[(df['日期'].dt.year >= train_start) & (df['日期'].dt.year <= train_end)]
-    test_data = df[(df['日期'].dt.year >= test_start) & (df['日期'].dt.year <= test_end)]
+    train_data = df[(df['Filing Date'].dt.year >= train_start) & (df['Filing Date'].dt.year <= train_end)]
+    test_data = df[(df['Filing Date'].dt.year >= test_start) & (df['Filing Date'].dt.year <= test_end)]
 
     if test_data.empty:
         test_start += 1
         test_end += 1
-        test_data = df[(df['日期'].dt.year >= test_start) & (df['日期'].dt.year <= test_end)]
+        test_data = df[(df['Filing Date'].dt.year >= test_start) & (df['Filing Date'].dt.year <= test_end)]
     
     print(f"Rolling Index: {rolling_index}")
     print(f"Train Period: {train_start} to {train_end}, Test Period: {test_start} to {test_end}")

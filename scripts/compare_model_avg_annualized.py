@@ -8,7 +8,7 @@ from typing import Optional
 
 import pandas as pd
 
-from experiments import benchmark_core
+from experiments import benchmark
 
 
 def parse_model_order(raw: Optional[str]) -> Optional[list[str]]:
@@ -73,7 +73,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         )
 
     try:
-        summary = benchmark_core.annualized_return_by_model(
+        summary = benchmark.annualized_return_by_model(
             df, model_order=parse_model_order(args.model_order)
         )
     except ValueError as exc:

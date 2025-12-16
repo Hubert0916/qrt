@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 def _valid_price(value) -> bool:
     try:
         return pd.notna(value) and float(value) > 0
@@ -96,16 +97,23 @@ def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
 
         prev_low = row.get("BIDLO_-4d")
         prev_high = row.get("ASKHI_-4d")
+        past_return = row.get("past_return")
 
-        long_gate = (
-            (entry_price - prev_low) / prev_low
-            if prev_low is not None else None
-        )
-
-        short_gate = (
-            (prev_high - entry_price) / prev_high
-            if prev_high is not None else None
-        )
+        long_gate = None
+        short_gate = None
+        if past_return is not None and pd.notna(past_return):
+            past_return = float(past_return)
+            if past_return > 0:
+                long_gate = past_return
+            else:
+                short_gate = -past_return
+        else:
+            # Fallback to original logic if past_return is not available
+            if _valid_price(prev_low):
+                long_gate = (entry_price - float(prev_low)) / float(prev_low)
+            if _valid_price(prev_high):
+                short_gate = (float(prev_high) - entry_price) / \
+                    float(prev_high)
         long_signal = (
             upper_pred is not None
             and not pd.isna(upper_pred)
@@ -124,14 +132,16 @@ def trading_rule(test_df: pd.DataFrame, qh: float, ql: float) -> pd.DataFrame:
         )
 
         if long_signal:
-            long_return = _simulate_long(
-                row, entry_price, prev_low, float(upper_pred)
-            )
+            if _valid_price(prev_low):
+                long_return = _simulate_long(
+                    row, entry_price, float(prev_low), float(upper_pred)
+                )
 
         if short_signal:
-            short_return = _simulate_short(
-                row, entry_price, prev_high, float(lower_pred)
-            )
+            if _valid_price(prev_high):
+                short_return = _simulate_short(
+                    row, entry_price, float(prev_high), float(lower_pred)
+                )
 
         if long_signal and short_signal:
             long_strength = float(upper_pred)

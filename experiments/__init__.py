@@ -1,5 +1,5 @@
 """Benchmark scripts package."""
 
-from . import benchmark_core
+from . import benchmark
 
-__all__ = ["benchmark_core"]
+__all__ = ["benchmark"]

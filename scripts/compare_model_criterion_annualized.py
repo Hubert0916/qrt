@@ -8,7 +8,7 @@ from typing import Optional
 
 import pandas as pd
 
-from experiments import benchmark_core
+from experiments import benchmark
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,7 +59,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             f"Metrics file is missing required columns: {', '.join(sorted(missing_cols))}"
         )
 
-    pivot = benchmark_core.annualized_return_by_model_criterion(df)
+    pivot = benchmark.annualized_return_by_model_criterion(df)
     if pivot.empty:
         parser.error("Metrics file contains no annualized return records.")
 

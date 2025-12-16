@@ -1,25 +1,20 @@
-# models/dynamic_quantile_forest.py
-"""
-Dynamic Quantile Forest that trains models on-the-fly during prediction.
-"""
+# models/quantile_regression_model_forest.py
 
-from typing import Dict, List, Optional, Type, Union
-from collections import defaultdict
+from typing import List, Optional, Type, Union, Tuple
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import QuantileRegressor
-import warnings
 
-from .qunatile_regression_model_leaf_tree import LeafQuantileRegressionTree
+from models.quantile_regression_model_leaf_tree import QuantileRegressionModelTree
 
 
 class QuantileRegressionModelForest:
     """
-    Dynamic Quantile Forest that trains QuantileRegressor models during prediction.
-    
-    This forest collects all training samples from corresponding leaf nodes across
-    all trees, then trains a fresh QuantileRegressor model for each prediction.
+    Quantile Regression Forest using Bagging (Bootstrap Aggregating).
+
+    This forest trains multiple QuantileRegressionModelTree instances on
+    bootstrapped subsets of data. During prediction, it aggregates the
+    predictions from all trees by calculating the mean.
 
     Parameters
     ----------
@@ -41,12 +36,10 @@ class QuantileRegressionModelForest:
         Cap on thresholds evaluated per feature (efficiency/quality trade-off).
     random_thresholds : bool, default=False
         If True, subsample thresholds randomly; else select deterministically.
-    include_oob : bool, default=True
-        If True and bootstrap=True, enrich leaf sample bags with OOB samples.
-    min_leaf_agg : int, default=8
-        Minimum total samples required across leaves when training dynamic model.
     random_state : int, optional
         Base RNG seed; each tree is offset by its index for reproducibility.
+    tree_cls : Type[QuantileRegressionModelTree], optional
+        The tree class to use for the ensemble.
     """
 
     def __init__(
@@ -60,10 +53,8 @@ class QuantileRegressionModelForest:
         max_features: Union[int, str, None] = "sqrt",
         max_threshold_candidates: int = 128,
         random_thresholds: bool = False,
-        include_oob: bool = True,
-        min_leaf_agg: int = 8,
         random_state: Optional[int] = None,
-        tree_cls: Type[LeafQuantileRegressionTree] = LeafQuantileRegressionTree,
+        tree_cls: Type[QuantileRegressionModelTree] = QuantileRegressionModelTree,
     ):
         self.n_estimators = n_estimators
         self.quantile = quantile
@@ -74,82 +65,36 @@ class QuantileRegressionModelForest:
         self.max_features = max_features
         self.max_threshold_candidates = max_threshold_candidates
         self.random_thresholds = random_thresholds
-        self.include_oob = include_oob
-        self.min_leaf_agg = min_leaf_agg
         self.random_state = random_state
         self.tree_cls = tree_cls
 
         # Learned state
-        self.trees_: List[LeafQuantileRegressionTree] = []
-        self.leaf_data_: List[Dict[int, Dict[str, np.ndarray]]] = []  # Store X,y for each leaf
-        self._fallback_quantile: Optional[float] = None
+        # Stores tuples of (TreeInstance, FeatureIndices)
+        self.estimators_: List[Tuple[QuantileRegressionModelTree, List[int]]] = []
         self.feature_names_: List[str] = []
         self._rng = np.random.default_rng(random_state)
-
-        # Cache original training data
-        self._X_original: Optional[np.ndarray] = None
-        self._y_original: Optional[np.ndarray] = None
 
     # --------------------------------------------------------------------- #
     # Helpers
     # --------------------------------------------------------------------- #
 
-    def _select_feature_subset(self, feature_names: List[str]) -> List[str]:
+    def _select_feature_subset(self, n_total_features: int) -> List[int]:
         """
-        Pick a feature subspace per tree based on `max_features`.
+        Randomly select feature indices based on `max_features`.
         """
-        n_features = len(feature_names)
+        all_indices = np.arange(n_total_features)
+
         if isinstance(self.max_features, int):
-            k = min(self.max_features, n_features)
+            k = min(self.max_features, n_total_features)
         elif self.max_features == "sqrt":
-            k = max(1, int(np.sqrt(n_features)))
+            k = max(1, int(np.sqrt(n_total_features)))
         elif self.max_features == "log2":
-            k = max(1, int(np.log2(n_features)))
+            k = max(1, int(np.log2(n_total_features)))
         else:
-            # Use all features when None or unrecognized value is given.
-            return feature_names
-        return self._rng.choice(feature_names, size=k, replace=False).tolist()
+            # None or unrecognized implies using all features
+            return list(all_indices)
 
-    def _get_leaf_node(self, tree: LeafQuantileRegressionTree, x: np.ndarray, tree_features: List[str] = None) -> int:
-        """
-        Route a single sample to a leaf node ID using the stored split structure.
-        """
-        if tree_features is None:
-            tree_features = getattr(tree, 'feature_names', self.feature_names_)
-            
-        node_id = 0
-        while node_id in tree.children_map:
-            children = tree.children_map.get(node_id, [])
-            if not children:
-                break
-            feat = children[0]["feature_name"]
-            try:
-                # Use the tree's specific feature mapping
-                if feat in tree_features:
-                    global_feat_idx = self.feature_names_.index(feat)
-                    v = float(x[global_feat_idx])
-                else:
-                    # Feature not available in this tree, stop traversal
-                    break
-            except (ValueError, IndexError):
-                # Missing feature or index mismatch; stop traversal gracefully.
-                break
-
-            nxt = None
-            for ch in children:
-                thr = ch["numeric_threshold"]
-                if ch["condition"] == "<" and v < thr:
-                    nxt = ch["node_id"]
-                    break
-                if ch["condition"] == ">=" and v >= thr:
-                    nxt = ch["node_id"]
-                    break
-
-            if nxt is None:
-                # No child condition matched; stop at current node.
-                break
-            node_id = nxt
-        return node_id
+        return self._rng.choice(all_indices, size=k, replace=False).tolist()
 
     # --------------------------------------------------------------------- #
     # Fit / Predict
@@ -159,9 +104,9 @@ class QuantileRegressionModelForest:
         self,
         X: Union[pd.DataFrame, np.ndarray],
         y: Union[pd.Series, np.ndarray],
-    ):
+    ) -> "QuantileRegressionModelForest":
         """
-        Train the forest and cache per-leaf sample data (X, y pairs).
+        Train the forest using bootstrap aggregation (bagging).
 
         Parameters
         ----------
@@ -172,261 +117,116 @@ class QuantileRegressionModelForest:
 
         Returns
         -------
-        self : DynamicQuantileForest
+        self : QuantileRegressionModelForest
             Fitted estimator.
         """
-        self.trees_.clear()
-        self.leaf_data_.clear()
+        self.estimators_.clear()
 
+        # Handle Input Data
         if isinstance(X, pd.DataFrame):
             self.feature_names_ = X.columns.tolist()
             X_np = X.values
         else:
             X_np = np.asarray(X)
             self.feature_names_ = [
-                f"feature_{i}" for i in range(X_np.shape[1])]
+                f"feature_{i}" for i in range(X_np.shape[1])
+            ]
+
         y_np = np.asarray(y)
+        n_samples, n_features = X_np.shape
 
-        # Cache original training data for dynamic model fitting
-        self._X_original = X_np.copy()
-        self._y_original = y_np.copy()
-
-        n = X_np.shape[0]
-        self._fallback_quantile = float(np.quantile(y_np, self.quantile))
-
-        print(f"Training {self.n_estimators} trees for Dynamic Quantile Forest...")
+        print(
+            f"Training {self.n_estimators} trees (Bagging, q={self.quantile})..."
+        )
 
         for i in range(self.n_estimators):
-            # Bootstrap sampling (bagging).
+            # 1. Bootstrap Sampling
             if self.bootstrap:
-                idx = self._rng.choice(n, size=n, replace=True)
+                indices = self._rng.choice(
+                    n_samples, size=n_samples, replace=True
+                )
             else:
-                idx = np.arange(n)
-            X_bag, y_bag = X_np[idx], y_np[idx]
+                indices = np.arange(n_samples)
 
-            # Choose a feature subspace per tree.
-            feats = self._select_feature_subset(self.feature_names_)
-            f_idx = [self.feature_names_.index(f) for f in feats]
+            X_bag = X_np[indices]
+            y_bag = y_np[indices]
 
-            # Build the tree
+            # 2. Feature Subsampling (Random Subspace)
+            feature_indices = self._select_feature_subset(n_features)
+            selected_feat_names = [self.feature_names_[j] for j in feature_indices]
+
+            # 3. Initialize Tree
+            tree_seed = (
+                self.random_state + i if self.random_state is not None else None
+            )
             tree = self.tree_cls(
                 split_criterion=self.split_criterion,
                 max_depth=self.max_depth,
                 min_samples_leaf=self.min_samples_leaf,
-                feature_names=feats,
-                random_state=(
-                    self.random_state + i if self.random_state is not None else None
-                ),
+                feature_names=selected_feat_names,
+                random_state=tree_seed,
                 random_features=True,
                 random_thresholds=self.random_thresholds,
                 max_threshold_candidates=self.max_threshold_candidates,
             )
-            tree.fit(X_bag[:, f_idx], y_bag, quantile=self.quantile)
-            self.trees_.append(tree)
 
-            # Store feature mapping for this tree
-            tree._forest_feature_mapping = {
-                'tree_features': feats,
-                'global_indices': f_idx,
-                'tree_to_global': {i: f_idx[i] for i in range(len(feats))}
-            }
+            # 4. Train Tree on subset of features
+            # Note: We pass only the selected columns to the tree
+            tree.fit(
+                X_bag[:, feature_indices],
+                y_bag,
+                quantile=self.quantile
+            )
 
-            # Collect X, y data for each leaf node
-            leaf_ids = np.array([self._get_leaf_node(tree, x, feats) for x in X_bag])
-            leaf_data = defaultdict(lambda: {'X': [], 'y': []})
-            
-            for lid, xi, yi in zip(leaf_ids, X_bag, y_bag):
-                leaf_data[lid]['X'].append(xi)
-                leaf_data[lid]['y'].append(yi)
+            # 5. Store the tree and the feature indices it uses
+            self.estimators_.append((tree, feature_indices))
 
-            # Optional OOB enrichment: add unseen samples to leaf data
-            if self.include_oob and self.bootstrap:
-                oob_mask = np.ones(n, dtype=bool)
-                oob_mask[idx] = False
-                X_oob = X_np[oob_mask]
-                y_oob = y_np[oob_mask]
-                if X_oob.size:
-                    for x, yi in zip(X_oob, y_oob):
-                        lid = self._get_leaf_node(tree, x, feats)
-                        leaf_data[lid]['X'].append(x)
-                        leaf_data[lid]['y'].append(yi)
-
-            # Convert lists to arrays and store
-            processed_leaf_data = {}
-            for lid, data in leaf_data.items():
-                processed_leaf_data[lid] = {
-                    'X': np.array(data['X']),
-                    'y': np.array(data['y'])
-                }
-            
-            self.leaf_data_.append(processed_leaf_data)
-
+            # Logging
             if (i + 1) % max(1, self.n_estimators // 10) == 0:
                 print(f"  Completed {i + 1}/{self.n_estimators} trees")
 
         print("Training completed!")
         return self
 
-    def predict(
-        self,
-        X: Union[pd.DataFrame, np.ndarray],
-        quantile: Optional[float] = None,
-    ) -> np.ndarray:
+    def predict(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
         """
-        Predict by collecting leaf data and training dynamic QuantileRegressor models.
+        Predict by aggregating predictions from all trees (Bagging).
+
+        The final prediction is the average of the predictions returned
+        by individual trees.
 
         Parameters
         ----------
         X : array-like or pandas.DataFrame, shape (n_samples, n_features)
             Samples to predict.
-        quantile : float, optional
-            If provided, overrides the forest's default quantile.
 
         Returns
         -------
         np.ndarray, shape (n_samples,)
-            Predicted quantiles.
+            Predicted quantiles (averaged across trees).
         """
-        if quantile is None:
-            quantile = self.quantile
+        if not self.estimators_:
+            raise RuntimeError("The forest has not been fitted yet.")
 
         X_np = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
-        preds: List[float] = []
+        n_samples = X_np.shape[0]
 
-        print(f"Dynamic prediction for {len(X_np)} samples...")
+        # Array to accumulate predictions: shape (n_estimators, n_samples)
+        all_tree_preds = np.zeros((len(self.estimators_), n_samples))
 
-        for i, x in enumerate(X_np):
-            # Collect all X, y data from corresponding leaf nodes across all trees
-            all_X = []
-            all_y = []
+        print(f"Predicting for {n_samples} samples using Bagging...")
 
-            for tree, leaf_data in zip(self.trees_, self.leaf_data_):
-                # Get the tree's specific feature names
-                tree_features = getattr(tree, '_forest_feature_mapping', {}).get('tree_features', self.feature_names_)
-                lid = self._get_leaf_node(tree, x, tree_features)
-                
-                if lid in leaf_data:
-                    leaf_X = leaf_data[lid]['X']
-                    leaf_y = leaf_data[lid]['y']
-                    
-                    if len(leaf_X) > 0:
-                        all_X.extend(leaf_X)
-                        all_y.extend(leaf_y)
+        for i, (tree, feature_indices) in enumerate(self.estimators_):
+            # Extract only the features used by this specific tree
+            X_subset = X_np[:, feature_indices]
+            
+            # Predict using the single tree (which uses its leaf models)
+            all_tree_preds[i, :] = tree.predict(X_subset)
 
-            # Train dynamic QuantileRegressor if we have enough data
-            if len(all_X) >= self.min_leaf_agg:
-                try:
-                    # Convert to numpy arrays
-                    X_combined = np.array(all_X)
-                    y_combined = np.array(all_y)
-                    
-                    # Train QuantileRegressor on combined leaf data
-                    model = QuantileRegressor(
-                        quantile=quantile,
-                        alpha=0.0,
-                        solver="highs",
-                        fit_intercept=True
-                    )
-                    model.fit(X_combined, y_combined)
-                    
-                    # Make prediction for the current sample
-                    x_pred = x.reshape(1, -1)
-                    pred = model.predict(x_pred)[0]
-                    preds.append(float(pred))
-                    
-                except Exception as e:
-                    # If model fitting fails, use fallback
-                    warnings.warn(f"Dynamic model fitting failed for sample {i}: {e}")
-                    preds.append(self._fallback_quantile)
-            else:
-                # Not enough data, use fallback quantile
-                preds.append(self._fallback_quantile)
+        # Aggregate: Average the predictions across all trees
+        # Note: Averaging quantiles is the standard approach for
+        # regression forests, though theoretically distinct from
+        # aggregating distributions.
+        final_preds = np.mean(all_tree_preds, axis=0)
 
-            # Progress indicator
-            if (i + 1) % max(1, len(X_np) // 10) == 0:
-                print(f"  Predicted {i + 1}/{len(X_np)} samples")
-
-        return np.asarray(preds, dtype=float)
-
-    def predict_with_sample_info(
-        self,
-        X: Union[pd.DataFrame, np.ndarray],
-        quantile: Optional[float] = None,
-    ) -> tuple[np.ndarray, List[Dict]]:
-        """
-        Predict with additional information about samples used for each prediction.
-
-        Returns
-        -------
-        predictions : np.ndarray
-            Predicted quantiles.
-        sample_info : List[Dict]
-            Information about samples used for each prediction.
-        """
-        if quantile is None:
-            quantile = self.quantile
-
-        X_np = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
-        preds: List[float] = []
-        sample_info: List[Dict] = []
-
-        for i, x in enumerate(X_np):
-            # Collect all X, y data from corresponding leaf nodes across all trees
-            all_X = []
-            all_y = []
-            leaf_counts = defaultdict(int)
-
-            for tree_idx, (tree, leaf_data) in enumerate(zip(self.trees_, self.leaf_data_)):
-                tree_features = getattr(tree, '_forest_feature_mapping', {}).get('tree_features', self.feature_names_)
-                lid = self._get_leaf_node(tree, x, tree_features)
-                
-                if lid in leaf_data:
-                    leaf_X = leaf_data[lid]['X']
-                    leaf_y = leaf_data[lid]['y']
-                    
-                    if len(leaf_X) > 0:
-                        all_X.extend(leaf_X)
-                        all_y.extend(leaf_y)
-                        leaf_counts[f'tree_{tree_idx}_leaf_{lid}'] = len(leaf_X)
-
-            # Record sample information
-            info = {
-                'total_samples': len(all_X),
-                'leaf_contributions': dict(leaf_counts),
-                'used_fallback': False
-            }
-
-            # Train dynamic QuantileRegressor if we have enough data
-            if len(all_X) >= self.min_leaf_agg:
-                try:
-                    # Convert to numpy arrays
-                    X_combined = np.array(all_X)
-                    y_combined = np.array(all_y)
-                    
-                    # Train QuantileRegressor on combined leaf data
-                    model = QuantileRegressor(
-                        quantile=quantile,
-                        alpha=0.0,
-                        solver="highs",
-                        fit_intercept=True
-                    )
-                    model.fit(X_combined, y_combined)
-                    
-                    # Make prediction for the current sample
-                    x_pred = x.reshape(1, -1)
-                    pred = model.predict(x_pred)[0]
-                    preds.append(float(pred))
-                    
-                except Exception as e:
-                    # If model fitting fails, use fallback
-                    info['used_fallback'] = True
-                    info['error'] = str(e)
-                    preds.append(self._fallback_quantile)
-            else:
-                # Not enough data, use fallback quantile
-                info['used_fallback'] = True
-                preds.append(self._fallback_quantile)
-
-            sample_info.append(info)
-
-        return np.asarray(preds, dtype=float), sample_info
+        return final_preds

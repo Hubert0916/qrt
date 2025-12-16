@@ -1,7 +1,4 @@
 # models/quantile_regression_tree.py
-"""
-High-performance Quantile Regression Tree (QRT).
-"""
 
 from __future__ import annotations
 
