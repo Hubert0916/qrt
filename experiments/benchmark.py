@@ -13,12 +13,16 @@ import matplotlib.ticker as mtick
 import numpy as np
 import pandas as pd
 
-from models.quantile_regression_forest import QuantileRegressionForest
+# Standard Models
+from models.quantile_tree_ensemble import QuantileTreeEnsemble
 from models.quantile_regression_tree import QuantileRegressionTree
+
+# Custom/Variant Models
+from models.quantile_regression_model_tree import QuantileRegressionModelTree
+
 from utils.data_loader import load_data, rolling_time
 from utils.trading_strategy import trading_rule
 
-from models.quantile_regression_model_leaf_tree import QuantileRegressionModelTree
 
 # ------------------------------ CLI -------------------------------- #
 
@@ -80,17 +84,17 @@ def coverage_rate(y_true: np.ndarray, ql_pred: np.ndarray, qh_pred: np.ndarray) 
     return float(np.mean((y_true >= ql_pred) & (y_true <= qh_pred)))
 
 
-SplitCriterion = ["mse", "loss", "r2"]
-SplitCriterion = ["mse", "loss", "r2"]
+# SplitCriterion = ["mse", "loss", "r2"]
+SplitCriterion = ["r2"]
 
 TREE_VARIANTS: Dict[str, type] = {
-    "QRT": QuantileRegressionTree,
+    # "QRT": QuantileRegressionTree,
     "QRT_leaf": QuantileRegressionModelTree,
 }
 
 FOREST_VARIANTS: Dict[str, type] = {
-    "QRF": QuantileRegressionTree,
-    "QRF_leaf": QuantileRegressionModelTree,
+    # "QRF": QuantileTreeEnsemble,
+    "QRF_leaf": QuantileTreeEnsemble,
 }
 
 
@@ -166,9 +170,11 @@ def fit_predict_qrf(
     max_depth: int,
     min_samples_leaf: int,
     seed: int,
-    tree_cls,
+    forest_cls,  # Changed from tree_cls to forest_cls
 ) -> Tuple[np.ndarray, np.ndarray]:
-    model_h = QuantileRegressionForest(
+    
+    # Instantiate the PASSED forest class, not the hardcoded one.
+    model_h = QuantileTreeEnsemble(
         n_estimators=n_estimators,
         quantile=qh,
         split_criterion=criterion,
@@ -179,11 +185,11 @@ def fit_predict_qrf(
         max_threshold_candidates=128,
         random_thresholds=False,
         random_state=seed,
-        tree_cls=tree_cls,
+        # Removed 'tree_cls=tree_cls' assuming custom forests handle their own tree types
     )
     model_h.fit(X_train, y_train)
 
-    model_l = QuantileRegressionForest(
+    model_l = QuantileTreeEnsemble(
         n_estimators=n_estimators,
         quantile=ql,
         split_criterion=criterion,
@@ -194,7 +200,7 @@ def fit_predict_qrf(
         max_threshold_candidates=128,
         random_thresholds=False,
         random_state=seed,
-        tree_cls=tree_cls,
+        # Removed 'tree_cls=tree_cls'
     )
     model_l.fit(X_train, y_train)
 
@@ -239,7 +245,7 @@ def process_window(
                     tree_cls,
                 )
             elif model_kind in FOREST_VARIANTS:
-                tree_cls = FOREST_VARIANTS[model_kind]
+                forest_cls = FOREST_VARIANTS[model_kind]
                 y_pred_l, y_pred_h = fit_predict_qrf(
                     X_train,
                     y_train,
@@ -251,7 +257,7 @@ def process_window(
                     args.max_depth,
                     args.min_samples_leaf,
                     args.random_state,
-                    tree_cls,
+                    forest_cls, # Pass the forest class correctly
                 )
             else:
                 raise ValueError(f"Unknown model kind: {model_kind}")
@@ -487,7 +493,7 @@ def _write_plots(metrics_df: pd.DataFrame, ql: float, qh: float, outdir: str) ->
         agg["annualized_return"].min() * 0.95,
         agg["annualized_return"].max() * 1.05,
     )
-    add_bar_labels(ax, agg["annualized_return"], fmt="{:.2f}")
+    add_bar_labels(ax, agg["annualized_return"], fmt="{:.4f}")
     plt.tight_layout()
     plt.savefig(os.path.join(outdir, "04_annualized_return_bar.png"), dpi=200)
     plt.close()
