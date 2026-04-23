@@ -18,11 +18,12 @@
 </p>
 
 <p align="center"> 
-  <img width="2400" height="1200" alt="03_cum_return_bar" src="https://github.com/user-attachments/assets/1437151e-d342-49fb-a071-dde318f84ac5" />
+  <img width="2400" height="1200" alt="03_annual_trading_performance" src="https://raw.githubusercontent.com/Hubert0916/qrt/master/output/annual_trading_performance.png" />
 </p>
 <p align="center">
-  <b>Figure 3.</b> <i>Mean Cumulative Return across Rolling Windows</i><br> 
-  QRT with <code>r²</code>-based splitting achieved the highest trading performance, nearly doubling the cumulative return compared to all other configurations. QRF variants showed stable but lower returns.
+  <b>Figure 3.</b> <i>Annual Trading Performance across Quantile Pairs</i><br> 
+  <strong>QRF consistently outperforms QRT in annual trading returns across all quantile configurations.</strong>
+  The forest ensemble delivers stable and higher returns regardless of the quantile pair used, demonstrating its robustness in trading applications.
 </p>
 
 <p align="center"> 
