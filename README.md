@@ -130,18 +130,15 @@ We choose splits that **maximize** $$R^2(S)$$.
 
 Our experiments are based on a **financial ESG dataset**, augmented with **text-derived features** and historical price information.
 
-- **Time Range:** 2003–2023  
-- **Samples:** ~97000 observations  
-- **Features:** 500+ ESG-related TF-IDF features extracted from company filings  
-- **Target:** Daily stock return (`報酬率`)
+- **Time Range:** 1998–2023 (rolling predictions start from 2003)  
+- **Samples:** 93,539 observations  
+- **Features:** 500+ ESG-related TF (Term Frequency) features extracted from company 10-Q filings  
+- **Target:** Post-announcement short-term stock return
 
 ### Feature Composition
 
-- **TF-IDF Features:**  
-  Each sample contains a vector of word importance scores capturing ESG disclosure intensity.
-
-- **Price History:**  
-  Includes open, high, low, and close prices with multiple day lags/leads (e.g., `OPENPRC_1d`, `BIDLO_-4d`).
+- **ESG TF Features:**  
+  Each sample contains a vector of term frequency scores derived from ESG-related vocabulary in SEC 10-Q filings, capturing ESG disclosure intensity. The ESG dictionary follows Baier et al. (2020).
 
   
 ### Hyperparameters
@@ -171,8 +168,8 @@ All experiments use **default settings** unless otherwise specified.
 |-----------------|-------|
 | `train_period`  | 5 (years) |
 | `test_period`   | 1 (year) |
-| `ql`            | 0.3 |
-| `qh`            | 0.7 |
+| `ql`            | 0.1 / 0.2 / 0.3 |
+| `qh`            | 0.9 / 0.8 / 0.7 |
 
 ### Trading Strategy
 
@@ -195,25 +192,10 @@ All experiments use **default settings** unless otherwise specified.
   - Any position still open at the end of day 4 is liquidated at `PRC_4d`.
 - Realized percentage P&L is logged in the `return` column, and the cumulative series is tracked via `total_return`.
 
-#### Short Side (Inactive)
-Although a `_simulate_short` function has been implemented in the code, it is currently disabled.  
-The reason is that our training set and feature design are based primarily on **long-side scenarios**,  
-and there is insufficient short-side data to support meaningful backtesting.  
-
-Therefore, all reported results and metrics are **long-only**.  
-
 #### Reporting
 - The trading function returns the per-row ledger with realized returns and `total_return` used in the benchmark metrics.
 - These outputs feed into `metrics.csv`, where cumulative performance is compared across model/split-criterion combinations.
 
-
-### Rolling-Window Setup
-
-- **Training window**: $$N_\text{train}$$ years (default 5)  
-- **Testing window**: $$N_\text{test}$$ years (default 1)  
-- Slide the window forward and repeat.
-
-Example: Train 2004–2008 → Test 2009, then Train 2005–209 → Test 2010, etc.
 
 ### Models & Criteria
 
@@ -222,7 +204,7 @@ Example: Train 2004–2008 → Test 2009, then Train 2005–209 → Test 2010, e
 
 with `split_criterion ∈ {loss, mse, r2}`
 
-Quantiles evaluated: $$q_l = 0.1, q_h = 0.9$$
+Quantiles evaluated: $$q_l \in \{0.1, 0.2, 0.3\},\; q_h \in \{0.9, 0.8, 0.7\}$$
 
 ### Metrics
 
@@ -231,8 +213,8 @@ Quantiles evaluated: $$q_l = 0.1, q_h = 0.9$$
 - **Coverage**:  
   $$\frac{\left|\{y \mid \hat y_{ql} \le y \le \hat y_{qh}\}\right|}{\left|\{y\}\right|}$$, 
   Ideally close to $$q_h - q_l$$ if intervals are calibrated.
-- **Cumulative return**:  
-  Backtest a long/short strategy based on predicted quantile bounds.
+- **Annual trading performance**:  
+  Backtest a long/short strategy based on predicted quantile bounds and evaluate annualized returns.
 
 
 ##  Results
