@@ -271,24 +271,6 @@ Quantiles evaluated: $$q_l = 0.1, q_h = 0.9$$
 
 **Split criterion has minimal impact on QRF.** The ensemble approach is robust to the choice of split criterion (loss, MSE, R²), whereas QRT is more sensitive to both the split rule and market regime.
 
-### Detailed Results (ql=0.3, qh=0.7)
-
-Metrics: Pinball (↓), Coverage (→ 0.40), Calibration Gap = |Coverage − 0.40| (↓), Mean CumRet (↑).
-Windows: nWindows = 15.
-
-| Model | Split | Pinball (↓) | Coverage (→0.40) | Calib. Gap (↓) | Mean CumRet (↑) | nWindows |
-| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
-| QRF | loss | **0.1531** | 0.3533 | 0.0467 | 5.05 | 15 |
-| QRF | mse  | **0.1531** | 0.3539 | **0.0461** | 5.04 | 15 |
-| QRF | r²   | **0.1531** | 0.3539 | **0.0461** | 5.05 | 15 |
-| QRT | loss | 0.1610 | 0.3000 | 0.1000 | 4.74 | 15 |
-| QRT | mse  | 0.1610 | 0.3412 | 0.0588 | 4.78 | 15 |
-| QRT | r²   | 0.1653 | 0.3097 | 0.0903 | 10.20 | 15 |
-
-> Note: QRT/r² shows a high cumulative return in this specific quantile pair, but this is driven by regime-sensitive spikes in individual windows. Across all quantile configurations, QRF delivers more consistent and reliable performance.
-
-Full Results
-
 For per-window plots, calibration diagnostics, and discussion, see [Full results](docs/results.md)
 
 
